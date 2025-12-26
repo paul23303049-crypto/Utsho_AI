@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Plus, MessageSquare, Trash2, Menu, X, Sparkles, Heart, User, LogOut } from 'lucide-react';
+import { Send, Plus, MessageSquare, Trash2, Menu, X, Sparkles, Heart, User, LogOut, Facebook } from 'lucide-react';
 import { ChatSession, Message, UserProfile, Gender } from './types';
 import { streamChatResponse } from './services/geminiService';
 
@@ -373,33 +373,48 @@ const App: React.FC = () => {
         </div>
 
         <div className="p-4 md:p-8 bg-gradient-to-t from-zinc-950 via-zinc-950/90 to-transparent">
-          <div className="max-w-3xl mx-auto relative">
-            <textarea
-              rows={1}
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={`Message Utsho...`}
-              className="w-full bg-zinc-900 border border-zinc-800 text-zinc-100 py-4 pl-4 pr-14 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all resize-none shadow-2xl"
-              style={{ maxHeight: '200px' }}
-              onInput={(e) => {
-                const target = e.target as HTMLTextAreaElement;
-                target.style.height = 'auto';
-                target.style.height = `${Math.min(target.scrollHeight, 200)}px`;
-              }}
-            />
-            <button
-              onClick={handleSendMessage}
-              disabled={!inputText.trim() || isLoading}
-              className={`
-                absolute right-3 bottom-3 p-2.5 rounded-xl transition-all
-                ${inputText.trim() && !isLoading
-                  ? (userProfile.gender === 'male' ? 'bg-indigo-500 text-white' : 'bg-pink-500 text-white') + ' hover:scale-105 active:scale-95'
-                  : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'}
-              `}
-            >
-              <Send size={18} />
-            </button>
+          <div className="max-w-3xl mx-auto relative space-y-4">
+            <div className="relative">
+              <textarea
+                rows={1}
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={`Message Utsho...`}
+                className="w-full bg-zinc-900 border border-zinc-800 text-zinc-100 py-4 pl-4 pr-14 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all resize-none shadow-2xl"
+                style={{ maxHeight: '200px' }}
+                onInput={(e) => {
+                  const target = e.target as HTMLTextAreaElement;
+                  target.style.height = 'auto';
+                  target.style.height = `${Math.min(target.scrollHeight, 200)}px`;
+                }}
+              />
+              <button
+                onClick={handleSendMessage}
+                disabled={!inputText.trim() || isLoading}
+                className={`
+                  absolute right-3 bottom-3 p-2.5 rounded-xl transition-all
+                  ${inputText.trim() && !isLoading
+                    ? (userProfile.gender === 'male' ? 'bg-indigo-500 text-white' : 'bg-pink-500 text-white') + ' hover:scale-105 active:scale-95'
+                    : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'}
+                `}
+              >
+                <Send size={18} />
+              </button>
+            </div>
+            
+            <footer className="flex items-center justify-center gap-2 py-2">
+              <span className="text-zinc-600 text-xs">Developed by</span>
+              <a 
+                href="https://www.facebook.com/shakkhor12102005/" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 text-zinc-400 hover:text-indigo-400 transition-colors text-xs font-medium"
+              >
+                <Facebook size={12} className="text-indigo-500" />
+                Shakkhor
+              </a>
+            </footer>
           </div>
         </div>
       </main>
