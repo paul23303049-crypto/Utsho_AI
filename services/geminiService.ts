@@ -3,7 +3,7 @@ import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
 import { Message, UserProfile } from "../types";
 
 const MAX_RETRIES = 3;
-const INITIAL_RETRY_DELAY = 1500; // 1.5 seconds
+const INITIAL_RETRY_DELAY = 1000;
 
 const getSystemInstruction = (profile: UserProfile) => {
   const base = `Your name is Utsho. You are a helpful and intelligent AI assistant. 
@@ -33,9 +33,8 @@ CRITICAL IDENTITY INFORMATION:
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
- * Streams response from Gemini. 
- * Recreates the AI instance on every call to ensure fresh connection state.
- * Implements retries for the free tier.
+ * Sends a message using a fresh API instance every time.
+ * This ensures that even if one connection 'expires' or hangs, the next one is clean.
  */
 export const streamChatResponse = async (
   history: Message[],
@@ -43,28 +42,31 @@ export const streamChatResponse = async (
   onChunk: (chunk: string) => void,
   onComplete: (fullText: string) => void,
   onError: (error: any) => void,
+  onStatusChange: (status: string) => void,
   retryCount = 0
 ): Promise<void> => {
   try {
-    // Accessing the key injected by Vite/Cloudflare
     const apiKey = process.env.API_KEY;
     
     if (!apiKey || apiKey === 'undefined' || apiKey === '') {
-      throw new Error("API_KEY_MISSING: Please set the API_KEY in your Cloudflare Pages environment variables.");
+      throw new Error("API_KEY_MISSING: The shared API key is not configured in the environment.");
     }
 
-    // 1. RECREATE: Every request gets a brand new instance of the SDK
+    // 1. FRESH CLIENT CREATION
+    // We do NOT reuse a global 'ai' object. We create a new one to force a new session.
+    onStatusChange(`Establishing Fresh Connection (Attempt ${retryCount + 1})...`);
     const ai = new GoogleGenAI({ apiKey });
 
-    // 2. CONTEXT MANAGEMENT: Keep last 15 messages to stay within free tier token limits
-    const contextHistory = history.length > 15 ? history.slice(-15) : history;
+    // 2. CONTEXT TRUNCATION
+    // Keep history lean to prevent token overflow on free tier
+    const recentHistory = history.length > 15 ? history.slice(-15) : history;
 
-    // Convert history to Gemini SDK format
-    const sdkHistory = contextHistory.slice(0, -1).map(msg => ({
+    const sdkHistory = recentHistory.slice(0, -1).map(msg => ({
       role: msg.role === 'user' ? 'user' : 'model' as any,
       parts: [{ text: msg.content }]
     }));
 
+    // 3. MODEL INITIALIZATION
     const chat = ai.chats.create({
       model: 'gemini-3-flash-preview',
       history: sdkHistory,
@@ -78,6 +80,7 @@ export const streamChatResponse = async (
     const lastUserMessage = history[history.length - 1].content;
     const streamResponse = await chat.sendMessageStream({ message: lastUserMessage });
     
+    onStatusChange("Receiving Data...");
     let fullText = '';
     for await (const chunk of streamResponse) {
       const c = chunk as GenerateContentResponse;
@@ -88,31 +91,23 @@ export const streamChatResponse = async (
     
     onComplete(fullText);
   } catch (error: any) {
-    console.error(`Attempt ${retryCount + 1} failed:`, error);
+    console.error(`[API ERROR] Attempt ${retryCount + 1}:`, error);
 
-    // 3. RETRY LOGIC: If the free API "expires" (rate limit) or flickers, recreate and retry
     const isRateLimit = error?.message?.includes('429');
-    const isServerError = error?.message?.includes('500') || error?.message?.includes('503');
-    const isNetworkError = error?.message?.toLowerCase().includes('fetch') || error?.message?.toLowerCase().includes('network');
+    const isNetworkError = error?.message?.includes('fetch') || error?.message?.includes('Network');
 
-    if ((isRateLimit || isServerError || isNetworkError) && retryCount < MAX_RETRIES) {
-      const delay = INITIAL_RETRY_DELAY * Math.pow(2, retryCount); // 1.5s, 3s, 6s...
-      
-      // Notify the UI that we are "recreating" the connection
-      onChunk(`\n\n*(The free API is busy. Reconnecting... attempt ${retryCount + 1}/${MAX_RETRIES})*\n\n`);
-      
+    // 4. AUTO-RECOVERY LOGIC
+    if ((isRateLimit || isNetworkError) && retryCount < MAX_RETRIES) {
+      const delay = INITIAL_RETRY_DELAY * Math.pow(2, retryCount);
+      onStatusChange(`Connection unstable. Auto-refreshing in ${delay/1000}s...`);
       await sleep(delay);
-      return streamChatResponse(history, profile, onChunk, onComplete, onError, retryCount + 1);
+      return streamChatResponse(history, profile, onChunk, onComplete, onError, onStatusChange, retryCount + 1);
     }
 
-    // Final failure handling
-    let userFriendlyMessage = error?.message || "An unexpected error occurred.";
-    if (isRateLimit) {
-      userFriendlyMessage = "The shared free API is temporarily overloaded. Please wait a minute and try again.";
-    } else if (error?.message?.includes('API_KEY_MISSING')) {
-      userFriendlyMessage = "Setup incomplete: API_KEY not found. If this is Cloudflare, please check your environment variables.";
-    }
-
-    onError(new Error(userFriendlyMessage));
+    const friendlyError = isRateLimit 
+      ? "The shared API is currently at its limit. Please wait a minute and try again."
+      : "I'm having trouble connecting to the network. Please try again later.";
+    
+    onError(new Error(friendlyError));
   }
 };
