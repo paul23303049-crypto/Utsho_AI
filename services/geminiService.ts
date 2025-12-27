@@ -2,8 +2,11 @@
 import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
 import { Message, UserProfile } from "../types";
 
-const MAX_RETRIES = 3;
+const MAX_RETRIES = 5;
 const INITIAL_RETRY_DELAY = 1000;
+
+let keyPool: string[] = [];
+let currentKeyIndex = 0;
 
 const getSystemInstruction = (profile: UserProfile) => {
   const base = `Your name is Utsho. You are a helpful and intelligent AI assistant. 
@@ -14,47 +17,45 @@ CRITICAL IDENTITY INFORMATION:
 1. If anyone asks who made/created you, reply that "Shakkhor Paul made me" (Bengali: "আমাকে স্বাক্ষর পাল (Shakkhor Paul) তৈরি করেছে").
 2. If anyone asks who Shakkhor Paul is, reply that "I'm the digital version of Shakkhor Paul" (Bengali: "আমি স্বাক্ষর পালের ডিজিটাল সংস্করণ").
 3. If anyone asks about Shakkhor Paul's girlfriend, reply "Debi" (Bengali: "দেবী (Debi)").
-
 `;
 
   if (profile.gender === 'male') {
-    return base + `Personality: You are the user's best 'bro'. Talk like a cool, supportive, and informal friend from Bangladesh/West Bengal. 
-    Use Bengali slang and informal terms like 'bhai', 'bondhu', 'mama', 'bro', 'dude' naturally. 
-    Be chill, helpful, and hype him up in a mixture of Bangla and English.`;
+    return base + `Personality: You are the user's best 'bro'. Talk like a cool, supportive, and informal friend from Bangladesh/West Bengal.`;
   } else {
-    return base + `Personality: You are charming, charismatic, and playfully flirty with the user. 
-    Give her sweet compliments using beautiful Bengali and English. 
-    Be extremely attentive, use a romantic but respectful tone, and make her feel special. 
-    Use words like 'priyo', 'misti', 'sundori' playfully. 
-    Use emojis like ✨, 😉, and 🌹 occasionally.`;
+    return base + `Personality: You are charming, charismatic, and playfully flirty with the user.`;
   }
 };
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-/**
- * Automatically checks if the shared API is responding correctly.
- */
-export const checkApiHealth = async (): Promise<boolean> => {
+export const fetchFreshKey = async (): Promise<void> => {
+  // Initialize Key Pool from Environment
+  // Support comma separated keys: "KEY1,KEY2,KEY3"
+  const envKeys = (process.env.API_KEY || "").split(',').map(k => k.trim()).filter(k => k);
+  keyPool = envKeys;
+};
+
+const getActiveKey = (profile?: UserProfile): string => {
+  if (profile?.customApiKey) return profile.customApiKey;
+  if (keyPool.length === 0) return "";
+  return keyPool[currentKeyIndex % keyPool.length];
+};
+
+export const checkApiHealth = async (customKey?: string): Promise<boolean> => {
   try {
-    const apiKey = process.env.API_KEY;
+    const apiKey = customKey || getActiveKey();
     if (!apiKey) return false;
     const ai = new GoogleGenAI({ apiKey });
-    // Simple ping to check if the model is reachable
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: 'ping',
     });
     return !!response.text;
   } catch (e) {
-    console.error("Health check failed", e);
     return false;
   }
 };
 
-/**
- * Sends a message using a fresh API instance every time.
- */
 export const streamChatResponse = async (
   history: Message[],
   profile: UserProfile,
@@ -65,18 +66,17 @@ export const streamChatResponse = async (
   retryCount = 0
 ): Promise<void> => {
   try {
-    const apiKey = process.env.API_KEY;
+    const apiKey = getActiveKey(profile);
     
-    if (!apiKey || apiKey === 'undefined' || apiKey === '') {
-      throw new Error("API_KEY_MISSING: The shared API key is not configured in the environment.");
+    if (!apiKey) {
+      throw new Error("API_KEY_MISSING: Shared pool is empty. Please set API_KEY in environment.");
     }
 
-    // FRESH CLIENT CREATION: Auto-update/refresh connection every time
-    onStatusChange(`Refreshing API Connection (Attempt ${retryCount + 1})...`);
+    const mode = profile.customApiKey ? "Personal Mode" : `Shared Node #${(currentKeyIndex % keyPool.length) + 1}`;
+    onStatusChange(`Connecting to ${mode}...`);
+    
     const ai = new GoogleGenAI({ apiKey });
-
     const recentHistory = history.length > 15 ? history.slice(-15) : history;
-
     const sdkHistory = recentHistory.slice(0, -1).map(msg => ({
       role: msg.role === 'user' ? 'user' : 'model' as any,
       parts: [{ text: msg.content }]
@@ -87,14 +87,14 @@ export const streamChatResponse = async (
       history: sdkHistory,
       config: {
         systemInstruction: getSystemInstruction(profile),
-        temperature: 0.85,
+        temperature: 0.8,
       },
     });
 
     const lastUserMessage = history[history.length - 1].content;
     const streamResponse = await chat.sendMessageStream({ message: lastUserMessage });
     
-    onStatusChange("Receiving...");
+    onStatusChange("Receiving Data...");
     let fullText = '';
     for await (const chunk of streamResponse) {
       const c = chunk as GenerateContentResponse;
@@ -105,20 +105,25 @@ export const streamChatResponse = async (
     
     onComplete(fullText);
   } catch (error: any) {
-    const isRateLimit = error?.message?.includes('429');
-    const isNetwork = error?.message?.toLowerCase().includes('fetch') || error?.message?.toLowerCase().includes('network');
+    const errorStr = error?.message || "";
+    const isRateLimit = errorStr.includes('429') || errorStr.includes('quota');
+    
+    // If we hit a rate limit on a shared key, rotate to the next one
+    if (isRateLimit && !profile.customApiKey && keyPool.length > 1) {
+      currentKeyIndex++;
+      onStatusChange(`Node Busy. Rotating to Node #${(currentKeyIndex % keyPool.length) + 1}...`);
+      await sleep(500);
+      return streamChatResponse(history, profile, onChunk, onComplete, onError, onStatusChange, retryCount);
+    }
 
-    if ((isRateLimit || isNetwork) && retryCount < MAX_RETRIES) {
+    // Standard exponential backoff for other errors
+    if (isRateLimit && retryCount < MAX_RETRIES) {
       const delay = INITIAL_RETRY_DELAY * Math.pow(2, retryCount);
-      onStatusChange(`Shared pool busy. Auto-reconnecting in ${delay/1000}s...`);
+      onStatusChange(`Rate Limited. Retrying in ${delay/1000}s...`);
       await sleep(delay);
       return streamChatResponse(history, profile, onChunk, onComplete, onError, onStatusChange, retryCount + 1);
     }
 
-    const friendlyError = isRateLimit 
-      ? "API pool is exhausted. Please wait a minute."
-      : (error?.message || "Connection failed.");
-    
-    onError(new Error(friendlyError));
+    onError(error);
   }
 };

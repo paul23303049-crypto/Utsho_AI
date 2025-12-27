@@ -4,7 +4,11 @@ export type Gender = 'male' | 'female';
 
 export interface UserProfile {
   name: string;
+  email: string;
+  picture?: string;
   gender: Gender;
+  customApiKey?: string;
+  googleId?: string;
 }
 
 export interface Message {
