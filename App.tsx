@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Send, Plus, MessageSquare, Trash2, Menu, Sparkles, LogOut, Facebook, Zap, RefreshCcw, Settings, Mail, CheckCircle2, ShieldAlert, Calendar, Instagram, UserCircle, Heart, ExternalLink, Globe, Image as ImageIcon, AlertCircle, Activity, Paperclip, X } from 'lucide-react';
 import { ChatSession, Message, UserProfile, Gender } from './types';
-import { streamChatResponse, checkApiHealth, getPoolStatus, adminResetPool } from './services/geminiService';
+import { streamChatResponse, checkApiHealth, getPoolStatus, adminResetPool, getLastNodeError } from './services/geminiService';
 import * as db from './services/firebaseService';
 
 const App: React.FC = () => {
@@ -16,6 +16,7 @@ const App: React.FC = () => {
   const [apiStatusText, setApiStatusText] = useState<string>('Ready');
   const [connectionHealth, setConnectionHealth] = useState<'perfect' | 'error'>('perfect');
   const [poolInfo, setPoolInfo] = useState({ total: 0, active: 0, exhausted: 0 });
+  const [lastErrorDiagnostic, setLastErrorDiagnostic] = useState<string>("None");
   
   const [onboardingStep, setOnboardingStep] = useState<1 | 2 | 4>(1);
   const [tempAge, setTempAge] = useState<string>('');
@@ -57,7 +58,10 @@ const App: React.FC = () => {
       }
     };
     bootApp();
-    const interval = setInterval(() => setPoolInfo(getPoolStatus()), 5000);
+    const interval = setInterval(() => {
+      setPoolInfo(getPoolStatus());
+      setLastErrorDiagnostic(getLastNodeError());
+    }, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -92,15 +96,17 @@ const App: React.FC = () => {
 
   const performHealthCheck = async (profile?: UserProfile) => {
     setApiStatusText('Scanning Nodes...');
-    const { healthy } = await checkApiHealth(profile || userProfile || undefined);
+    const { healthy, error } = await checkApiHealth(profile || userProfile || undefined);
     setConnectionHealth(healthy ? 'perfect' : 'error');
     setApiStatusText(healthy ? 'Active' : 'Node Error');
     setPoolInfo(getPoolStatus());
+    if (error) setLastErrorDiagnostic(error);
   };
 
   const handleResetPool = () => {
     const newStatus = adminResetPool();
     setPoolInfo(newStatus);
+    setLastErrorDiagnostic("None");
     performHealthCheck();
   };
 
@@ -179,11 +185,14 @@ const App: React.FC = () => {
       },
       (err) => {
         setIsLoading(false);
-        let errorContent = "Something went wrong. Please check your internet connection.";
-        const errMsg = err.message || "";
-        if (errMsg.includes("Exhausted") || errMsg.includes("429") || errMsg.includes("Swapping")) {
-          errorContent = "Critical: The node pool returned errors for all attempts. This often happens if the API keys are invalid or not enabled for the Gemini 3 Flash model. Please check your shared keys.";
+        const errMsg = err.message || "Unknown Error";
+        setLastErrorDiagnostic(errMsg);
+        
+        let errorContent = errMsg;
+        if (errMsg.includes("429") || errMsg.includes("Exhausted") || errMsg.includes("Swap")) {
+          errorContent = "Pool Failure: Every node in the pool returned an error. This usually means the keys provided are invalid or the model is not enabled for those keys. Check the Diagnostics in your sidebar.";
         }
+        
         const errorMsg: Message = { id: crypto.randomUUID(), role: 'model', content: errorContent, timestamp: new Date() };
         setSessions(prev => prev.map(s => s.id === activeSessionId ? { ...s, messages: [...s.messages, errorMsg] } : s));
         setPoolInfo(getPoolStatus());
@@ -241,7 +250,7 @@ const App: React.FC = () => {
                      <Activity size={12} className="text-emerald-500" />
                      <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Pool Health</span>
                   </div>
-                  <button onClick={handleResetPool} className="p-1 text-zinc-600 hover:text-emerald-400 transition-colors" title="Reset Pool Memory"><RefreshCcw size={14} /></button>
+                  <button onClick={handleResetPool} className="p-1 text-zinc-600 hover:text-emerald-400 transition-colors" title="Force Rescan Pool"><RefreshCcw size={14} /></button>
                </div>
                
                <div className="grid grid-cols-2 gap-2">
@@ -251,15 +260,26 @@ const App: React.FC = () => {
                   </div>
                   <div className="bg-zinc-900 p-2 rounded-xl border border-zinc-800">
                      <div className={`text-xs font-black ${poolInfo.exhausted > 0 ? 'text-amber-500' : 'text-zinc-600'}`}>{poolInfo.exhausted}</div>
-                     <div className="text-[8px] uppercase text-zinc-500">Cooldown</div>
+                     <div className="text-[8px] uppercase text-zinc-500">Exhausted</div>
+                  </div>
+               </div>
+
+               {/* Admin Diagnostics */}
+               <div className="bg-zinc-900 p-2 rounded-xl border border-zinc-800 space-y-1">
+                  <div className="text-[8px] uppercase font-black text-zinc-500 flex items-center justify-between">
+                    <span>Last Pool Error</span>
+                    {lastErrorDiagnostic !== "None" && <AlertCircle size={8} className="text-red-500" />}
+                  </div>
+                  <div className={`text-[9px] font-mono leading-tight break-all ${lastErrorDiagnostic === 'None' ? 'text-zinc-700' : 'text-red-400/80'}`}>
+                    {lastErrorDiagnostic}
                   </div>
                </div>
                
                <div className="flex items-center gap-2 px-1">
                   <div className={`flex-1 h-1 rounded-full bg-zinc-800 overflow-hidden`}>
                      <div 
-                        className={`h-full transition-all duration-1000 ${poolInfo.active < 5 ? 'bg-red-500' : 'bg-emerald-500'}`}
-                        style={{ width: `${(poolInfo.active / poolInfo.total) * 100}%` }}
+                        className={`h-full transition-all duration-1000 ${poolInfo.active < 1 ? 'bg-red-500' : (poolInfo.active < 5 ? 'bg-amber-500' : 'bg-emerald-500')}`}
+                        style={{ width: `${(poolInfo.active / Math.max(1, poolInfo.total)) * 100}%` }}
                       />
                   </div>
                   <span className="text-[9px] font-bold text-zinc-600 truncate max-w-[100px]">{apiStatusText}</span>
@@ -310,7 +330,7 @@ const App: React.FC = () => {
                 <div className={`w-24 h-24 rounded-[2rem] flex items-center justify-center shadow-2xl floating-ai ${isUserDebi ? 'bg-pink-600 shadow-pink-500/20' : 'bg-indigo-600 shadow-indigo-500/20'}`}><Sparkles size={40} /></div>
                 <div className="space-y-2">
                   <h3 className="text-3xl font-black tracking-tight">Ready to chat?</h3>
-                  {isAdmin && <p className="text-sm max-w-xs text-zinc-500 mx-auto">Admin Access: {poolInfo.total} nodes pooled. If nodes are exhausted, click the reset icon in Sidebar.</p>}
+                  {isAdmin && <p className="text-sm max-w-xs text-zinc-500 mx-auto">Admin Access: {poolInfo.total} nodes pooled. If nodes are exhausted, check the Diagnostics log in Sidebar.</p>}
                   {!isAdmin && <p className="text-sm max-w-xs text-zinc-500 mx-auto">I'm your intelligent AI companion with vision and search capabilities.</p>}
                 </div>
                 <div className="grid grid-cols-2 gap-3 w-full max-w-sm">
@@ -328,8 +348,8 @@ const App: React.FC = () => {
                         </div>
                       )}
                       {m.content && (
-                        <div className={`p-4 rounded-3xl text-[15px] bangla-text shadow-sm ${m.role === 'user' ? (isUserDebi ? 'bg-pink-600' : 'bg-indigo-600 shadow-indigo-500/10') + ' text-white rounded-tr-none' : 'bg-zinc-900 border border-zinc-800 text-zinc-100 rounded-tl-none'} ${m.content.includes("Exhausted") || m.content.includes("Critical") ? 'border-red-500/30 bg-red-500/5' : ''}`}>
-                          {(m.content.includes("Exhausted") || m.content.includes("Critical")) && <AlertCircle size={14} className="inline mr-2 text-red-400" />}
+                        <div className={`p-4 rounded-3xl text-[15px] bangla-text shadow-sm ${m.role === 'user' ? (isUserDebi ? 'bg-pink-600' : 'bg-indigo-600 shadow-indigo-500/10') + ' text-white rounded-tr-none' : 'bg-zinc-900 border border-zinc-800 text-zinc-100 rounded-tl-none'} ${m.content.includes("Failure") || m.content.includes("Critical") ? 'border-red-500/30 bg-red-500/5' : ''}`}>
+                          {(m.content.includes("Failure") || m.content.includes("Critical")) && <AlertCircle size={14} className="inline mr-2 text-red-400" />}
                           {m.content}
                         </div>
                       )}

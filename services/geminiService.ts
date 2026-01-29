@@ -7,16 +7,23 @@ import * as db from "./firebaseService";
 const keyBlacklist = new Map<string, number>();
 const BLACKLIST_DURATION = 1000 * 60 * 15; // 15 minutes for 429 errors
 
+// Global diagnostic tracker for admin
+let lastNodeError: string = "None";
+
 const getKeys = (): string[] => {
   const raw = process.env.API_KEY || "";
-  return raw.split(',').map(k => k.trim()).filter(k => k.length > 0);
+  // Split by comma, newline, or semicolon to be extra robust
+  return raw.split(/[,\n;]+/).map(k => k.trim()).filter(k => k.length > 5);
 };
 
 // Admin function to clear the blacklist
 export const adminResetPool = () => {
   keyBlacklist.clear();
+  lastNodeError = "None";
   return getPoolStatus();
 };
+
+export const getLastNodeError = () => lastNodeError;
 
 // Returns stats about the pool for the UI
 export const getPoolStatus = () => {
@@ -43,18 +50,10 @@ const getActiveKey = (profile?: UserProfile, excludeKeys: string[] = []): string
   }
 
   const allKeys = getKeys();
-  const now = Date.now();
-  
-  // Clean up
-  for (const [key, expiry] of keyBlacklist.entries()) {
-    if (now > expiry) keyBlacklist.delete(key);
-  }
-
   const availableKeys = allKeys.filter(k => !keyBlacklist.has(k) && !excludeKeys.includes(k));
   
   if (availableKeys.length === 0) {
-    // If absolutely everything is blacklisted and we are not excluding, try one last resort
-    return excludeKeys.length === 0 ? (allKeys[Math.floor(Math.random() * allKeys.length)] || "") : "";
+    return "";
   }
 
   return availableKeys[Math.floor(Math.random() * availableKeys.length)];
@@ -92,7 +91,7 @@ ${isDebi ? 'You are speaking to the Queen, Debi. Be sweet and devoted.' : ''}
 
 export const checkApiHealth = async (profile?: UserProfile): Promise<{healthy: boolean, error?: string}> => {
   const key = getActiveKey(profile);
-  if (!key) return { healthy: false, error: "No API Key found" };
+  if (!key) return { healthy: false, error: "No healthy nodes available" };
   try {
     const ai = new GoogleGenAI({ apiKey: key });
     await ai.models.generateContent({
@@ -102,6 +101,7 @@ export const checkApiHealth = async (profile?: UserProfile): Promise<{healthy: b
     });
     return { healthy: true };
   } catch (e: any) {
+    lastNodeError = e.message || "Unknown error during health check";
     return { healthy: false, error: e.message };
   }
 };
@@ -121,8 +121,8 @@ export const streamChatResponse = async (
   
   if (!apiKey) {
     const errorMsg = triedKeys.length > 0 
-      ? `Critical Failure: Tried all ${triedKeys.length} nodes but all returned errors.`
-      : "Pool Exhausted. All nodes are currently cooling down.";
+      ? `Critical: All ${triedKeys.length} nodes returned errors. Last error: ${lastNodeError}`
+      : "Pool Exhausted. All nodes are currently cooling down. Please wait or check your keys.";
     onError(new Error(errorMsg));
     return;
   }
@@ -197,7 +197,9 @@ export const streamChatResponse = async (
 
   } catch (error: any) {
     const errMsg = (error.message || "").toLowerCase();
-    // Blacklist for 429 (Quota), 403 (Forbidden), 400 (Invalid Key)
+    lastNodeError = error.message || "Unknown error";
+    
+    // Blacklist for errors that suggest the node shouldn't be used again soon
     const shouldBlacklist = errMsg.includes("429") || errMsg.includes("quota") || errMsg.includes("key not found") || errMsg.includes("invalid") || errMsg.includes("403") || errMsg.includes("400");
     
     if (shouldBlacklist && !profile.customApiKey) {
@@ -205,12 +207,11 @@ export const streamChatResponse = async (
       console.warn(`Node ${attempt} failed: ${error.message}. Swapping...`);
       
       if (attempt < totalKeys) {
-        onStatusChange(`Swapping Node (${attempt}/${totalKeys})...`);
+        onStatusChange(`Node Swap (${attempt}/${totalKeys})...`);
         return streamChatResponse(history, profile, onChunk, onComplete, onError, onStatusChange, attempt + 1, [...triedKeys, apiKey]);
       }
     }
     
-    // If it's a non-API error or we exhausted the pool, report back
     onError(error);
   }
 };
