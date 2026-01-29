@@ -32,6 +32,7 @@ const firebaseConfig = {
 };
 
 const ADMIN_EMAIL = 'shakkhorpaul50@gmail.com';
+const DEBI_EMAIL = 'nitebiswaskotha@gmail.com';
 
 const isConfigValid = !!firebaseConfig.apiKey && !!firebaseConfig.projectId;
 
@@ -50,12 +51,12 @@ if (isConfigValid) {
 
 export const isDatabaseEnabled = () => !!db;
 export const isAdmin = (email: string) => email.toLowerCase().trim() === ADMIN_EMAIL;
+export const isDebi = (email: string) => email.toLowerCase().trim() === DEBI_EMAIL;
 
 export const loginWithGoogle = async (): Promise<UserProfile | null> => {
   if (!auth) throw new Error("Auth not initialized");
   const provider = new GoogleAuthProvider();
   
-  // Scopes to try and get age/gender from Google Account
   provider.addScope('https://www.googleapis.com/auth/user.birthday.read');
   provider.addScope('https://www.googleapis.com/auth/user.gender.read');
   
@@ -67,20 +68,15 @@ export const loginWithGoogle = async (): Promise<UserProfile | null> => {
   let gender: 'male' | 'female' = 'male';
   let age = 20;
 
-  // Attempt to fetch extra profile data from Google People API
   if (token) {
     try {
       const response = await fetch('https://people.googleapis.com/v1/people/me?personFields=birthdays,genders', {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await response.json();
-      
-      // Extract Gender
       if (data.genders && data.genders.length > 0) {
         gender = data.genders[0].value === 'female' ? 'female' : 'male';
       }
-      
-      // Extract Age
       if (data.birthdays && data.birthdays.length > 0) {
         const birthday = data.birthdays.find((b: any) => b.date && b.date.year);
         if (birthday) {

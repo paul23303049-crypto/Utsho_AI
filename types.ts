@@ -8,7 +8,6 @@ export interface UserProfile {
   picture?: string;
   gender: Gender;
   age: number;
-  customApiKey?: string;
   googleId?: string;
 }
 
