@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Plus, MessageSquare, Trash2, Menu, Sparkles, LogOut, Facebook, Zap, RefreshCcw, Settings, Mail, CheckCircle2, ShieldAlert, Calendar, Instagram, UserCircle, Heart, ExternalLink, Globe, Image as ImageIcon, AlertCircle, Activity } from 'lucide-react';
+import { Send, Plus, MessageSquare, Trash2, Menu, Sparkles, LogOut, Facebook, Zap, RefreshCcw, Settings, Mail, CheckCircle2, ShieldAlert, Calendar, Instagram, UserCircle, Heart, ExternalLink, Globe, Image as ImageIcon, AlertCircle, Activity, Paperclip, X } from 'lucide-react';
 import { ChatSession, Message, UserProfile, Gender } from './types';
 import { streamChatResponse, checkApiHealth, getPoolStatus } from './services/geminiService';
 import * as db from './services/firebaseService';
@@ -21,8 +21,12 @@ const App: React.FC = () => {
   const [tempAge, setTempAge] = useState<string>('');
   const [tempGender, setTempGender] = useState<Gender | null>(null);
   const [customKeyInput, setCustomKeyInput] = useState('');
+  
+  const [selectedImage, setSelectedImage] = useState<{ data: string, mimeType: string } | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isAdmin = userProfile ? db.isAdmin(userProfile.email) : false;
   const isUserDebi = userProfile?.email.toLowerCase().trim() === 'nitebiswaskotha@gmail.com';
@@ -112,13 +116,37 @@ const App: React.FC = () => {
     if (db.isDatabaseEnabled()) db.saveSession(emailOverride || userProfile!.email, newSession);
   };
 
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64 = (reader.result as string).split(',')[1];
+      setSelectedImage({ data: base64, mimeType: file.type });
+      setImagePreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleSendMessage = async () => {
-    if (!inputText.trim() || isLoading || !activeSessionId || !userProfile) return;
-    const userMsg: Message = { id: crypto.randomUUID(), role: 'user', content: inputText, timestamp: new Date() };
+    if ((!inputText.trim() && !selectedImage) || isLoading || !activeSessionId || !userProfile) return;
+    
+    const userMsg: Message = { 
+      id: crypto.randomUUID(), 
+      role: 'user', 
+      content: inputText, 
+      timestamp: new Date(),
+      imagePart: selectedImage || undefined,
+      imageUrl: imagePreview || undefined
+    };
+    
     const currentSession = sessions.find(s => s.id === activeSessionId)!;
     const history = [...currentSession.messages, userMsg];
     
     setInputText('');
+    setSelectedImage(null);
+    setImagePreview(null);
     setIsLoading(true);
     setSessions(prev => prev.map(s => s.id === activeSessionId ? { ...s, messages: history } : s));
 
@@ -139,7 +167,7 @@ const App: React.FC = () => {
         }));
         
         const updatedMessages = [...history, ...newMessages];
-        setSessions(prev => prev.map(s => s.id === activeSessionId ? { ...s, messages: updatedMessages, title: s.messages.length === 0 ? userMsg.content.slice(0, 30) : s.title } : s));
+        setSessions(prev => prev.map(s => s.id === activeSessionId ? { ...s, messages: updatedMessages, title: s.messages.length === 1 ? userMsg.content.slice(0, 30) || "Image Analysis" : s.title } : s));
         if (db.isDatabaseEnabled()) db.updateSessionMessages(userProfile.email, activeSessionId, updatedMessages);
         setPoolInfo(getPoolStatus());
       },
@@ -277,11 +305,11 @@ const App: React.FC = () => {
                 <div className="space-y-2">
                   <h3 className="text-3xl font-black tracking-tight">Ready to chat?</h3>
                   {isAdmin && <p className="text-sm max-w-xs text-zinc-500 mx-auto">Admin Access: {poolInfo.total} nodes pooled for 99.9% uptime.</p>}
-                  {!isAdmin && <p className="text-sm max-w-xs text-zinc-500 mx-auto">I'm your intelligent AI companion with real-time web access.</p>}
+                  {!isAdmin && <p className="text-sm max-w-xs text-zinc-500 mx-auto">I'm your intelligent AI companion with vision and search capabilities.</p>}
                 </div>
                 <div className="grid grid-cols-2 gap-3 w-full max-w-sm">
                    <div className="p-4 bg-zinc-900/50 border border-zinc-800 rounded-2xl text-xs text-zinc-400 hover:border-zinc-700 transition-colors cursor-pointer" onClick={() => setInputText("What are the latest tech headlines today?")}>Latest Tech News</div>
-                   <div className="p-4 bg-zinc-900/50 border border-zinc-800 rounded-2xl text-xs text-zinc-400 hover:border-zinc-700 transition-colors cursor-pointer" onClick={() => setInputText("Imagine a futuristic city on Mars")}>Mars City Image</div>
+                   <div className="p-4 bg-zinc-900/50 border border-zinc-800 rounded-2xl text-xs text-zinc-400 hover:border-zinc-700 transition-colors cursor-pointer" onClick={() => fileInputRef.current?.click()}>Upload an image</div>
                 </div>
               </div>
             ) : (
@@ -290,13 +318,15 @@ const App: React.FC = () => {
                    <div className={`flex flex-col gap-2 max-w-[85%] ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
                       {m.imageUrl && (
                         <div className="rounded-3xl overflow-hidden border border-zinc-800 shadow-2xl mb-2 hover:scale-[1.01] transition-transform cursor-zoom-in">
-                           <img src={m.imageUrl} className="max-w-full h-auto" alt="AI Visual" />
+                           <img src={m.imageUrl} className="max-w-full h-auto" alt="Attached Content" />
                         </div>
                       )}
-                      <div className={`p-4 rounded-3xl text-[15px] bangla-text shadow-sm ${m.role === 'user' ? (isUserDebi ? 'bg-pink-600' : 'bg-indigo-600 shadow-indigo-500/10') + ' text-white rounded-tr-none' : 'bg-zinc-900 border border-zinc-800 text-zinc-100 rounded-tl-none'} ${m.content.includes("Exhausted") ? 'border-red-500/30 bg-red-500/5' : ''}`}>
-                        {m.content.includes("Exhausted") && <AlertCircle size={14} className="inline mr-2 text-red-400" />}
-                        {m.content}
-                      </div>
+                      {m.content && (
+                        <div className={`p-4 rounded-3xl text-[15px] bangla-text shadow-sm ${m.role === 'user' ? (isUserDebi ? 'bg-pink-600' : 'bg-indigo-600 shadow-indigo-500/10') + ' text-white rounded-tr-none' : 'bg-zinc-900 border border-zinc-800 text-zinc-100 rounded-tl-none'} ${m.content.includes("Exhausted") ? 'border-red-500/30 bg-red-500/5' : ''}`}>
+                          {m.content.includes("Exhausted") && <AlertCircle size={14} className="inline mr-2 text-red-400" />}
+                          {m.content}
+                        </div>
+                      )}
                       {m.sources && m.sources.length > 0 && (
                         <div className="mt-2 space-y-2 w-full">
                           <div className="flex items-center gap-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest pl-1">
@@ -322,11 +352,40 @@ const App: React.FC = () => {
 
         {/* Input Area */}
         <div className="p-4 md:p-8 bg-zinc-950/80 backdrop-blur-md">
-          <div className="max-w-3xl mx-auto flex items-end gap-2 bg-zinc-900 border border-zinc-800 rounded-[2rem] p-2 focus-within:border-indigo-500/50 shadow-2xl transition-all">
-            <textarea rows={1} value={inputText} onChange={e => { setInputText(e.target.value); e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } }} placeholder="Talk to Utsho..." className="flex-1 bg-transparent py-3 px-5 outline-none resize-none max-h-40 text-zinc-100 placeholder-zinc-600" />
-            <button onClick={handleSendMessage} disabled={!inputText.trim() || isLoading} className={`p-4 rounded-full transition-all active:scale-90 shadow-lg ${inputText.trim() && !isLoading ? (isUserDebi ? 'bg-pink-600 shadow-pink-600/20' : 'bg-indigo-600 shadow-indigo-600/20') : 'bg-zinc-800 text-zinc-600'}`}>
-               {isLoading ? <RefreshCcw size={20} className="animate-spin" /> : <Send size={20} />}
-            </button>
+          <div className="max-w-3xl mx-auto space-y-3">
+            {imagePreview && (
+              <div className="relative inline-block animate-in fade-in zoom-in duration-200">
+                <img src={imagePreview} className="w-24 h-24 object-cover rounded-2xl border-2 border-indigo-500/30 shadow-xl" alt="Preview" />
+                <button 
+                  onClick={() => { setSelectedImage(null); setImagePreview(null); }} 
+                  className="absolute -top-2 -right-2 bg-red-500 text-white p-1 rounded-full hover:bg-red-600 transition-colors shadow-lg"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+            
+            <div className="flex items-end gap-2 bg-zinc-900 border border-zinc-800 rounded-[2rem] p-2 focus-within:border-indigo-500/50 shadow-2xl transition-all">
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                className="hidden" 
+                accept="image/*" 
+                onChange={handleImageSelect} 
+              />
+              <button 
+                onClick={() => fileInputRef.current?.click()}
+                className="p-3 mb-1 ml-1 text-zinc-500 hover:text-indigo-400 transition-colors"
+              >
+                <Paperclip size={20} />
+              </button>
+              
+              <textarea rows={1} value={inputText} onChange={e => { setInputText(e.target.value); e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } }} placeholder="Talk to Utsho..." className="flex-1 bg-transparent py-3 px-3 outline-none resize-none max-h-40 text-zinc-100 placeholder-zinc-600" />
+              
+              <button onClick={handleSendMessage} disabled={(!inputText.trim() && !selectedImage) || isLoading} className={`p-4 rounded-full transition-all active:scale-90 shadow-lg ${ (inputText.trim() || selectedImage) && !isLoading ? (isUserDebi ? 'bg-pink-600 shadow-pink-600/20' : 'bg-indigo-600 shadow-indigo-600/20') : 'bg-zinc-800 text-zinc-600'}`}>
+                 {isLoading ? <RefreshCcw size={20} className="animate-spin" /> : <Send size={20} />}
+              </button>
+            </div>
           </div>
         </div>
       </main>

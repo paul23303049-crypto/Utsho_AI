@@ -75,7 +75,7 @@ const getSystemInstruction = (profile: UserProfile) => {
 
 CAPABILITIES:
 1. GOOGLE SEARCH: Use for current news, scores, and facts.
-2. IMAGES: Use for creative visualization.
+2. VISION: You can analyze images provided by the user.
 3. MULTI-BUBBLE: Always split your responses into 2-3 snappy messages using '[SPLIT]'.
 
 ${isCreator ? 'You are speaking to your creator, Shakkhor. Be brilliant and efficient.' : ''}
@@ -118,36 +118,29 @@ export const streamChatResponse = async (
   }
 
   const isCreator = profile.email.toLowerCase().trim() === 'shakkhorpaul50@gmail.com';
-  const lastUserMsg = history[history.length - 1].content.toLowerCase();
-  const isImageRequest = lastUserMsg.includes("draw") || lastUserMsg.includes("generate") || lastUserMsg.includes("imagine");
+  const lastUserMsg = history[history.length - 1];
 
   try {
     const ai = new GoogleGenAI({ apiKey });
     
-    if (isImageRequest) {
-      onStatusChange("Visualizing...");
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',
-        contents: [{ parts: [{ text: `Generate a high-quality creative image for: ${lastUserMsg}` }] }],
-      });
-      
-      let imageUrl = "";
-      let caption = "I've imagined this for you! [SPLIT] Check it out.";
-      for (const part of (response.candidates?.[0]?.content?.parts || [])) {
-        if (part.inlineData) imageUrl = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
-        else if (part.text) caption = part.text;
-      }
-      onComplete(caption, [], imageUrl);
-      return;
-    }
-
     const recentHistory = history.length > 8 ? history.slice(-8) : history;
-    const sdkHistory: Content[] = recentHistory.map(msg => ({
-      role: (msg.role === 'user' ? 'user' : 'model'),
-      parts: [{ text: msg.content || "" }]
-    }));
+    const sdkHistory: Content[] = recentHistory.map(msg => {
+      const parts: any[] = [{ text: msg.content || "" }];
+      if (msg.imagePart) {
+        parts.push({
+          inlineData: {
+            data: msg.imagePart.data,
+            mimeType: msg.imagePart.mimeType
+          }
+        });
+      }
+      return {
+        role: (msg.role === 'user' ? 'user' : 'model'),
+        parts
+      };
+    });
 
-    const isAdminCommand = isCreator && (lastUserMsg.includes("list users") || lastUserMsg.includes("health report"));
+    const isAdminCommand = isCreator && (lastUserMsg.content.toLowerCase().includes("list users") || lastUserMsg.content.toLowerCase().includes("health report"));
     const config: any = {
       systemInstruction: getSystemInstruction(profile),
       temperature: 0.7,
