@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Plus, MessageSquare, Trash2, Menu, X, Sparkles, LogOut, Facebook, ShieldCheck, Zap, Globe, RefreshCcw, Settings, Key, ExternalLink, Mail, CheckCircle2, ArrowRight } from 'lucide-react';
+import { Send, Plus, MessageSquare, Trash2, Menu, X, Sparkles, LogOut, Facebook, ShieldCheck, Zap, Globe, RefreshCcw, Settings, Key, ExternalLink, Mail, CheckCircle2, ArrowRight, Cloud, CloudOff } from 'lucide-react';
 import { ChatSession, Message, UserProfile, Gender } from './types';
 import { streamChatResponse, checkApiHealth, fetchFreshKey } from './services/geminiService';
+import * as db from './services/firebaseService';
 
 const App: React.FC = () => {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -14,6 +15,7 @@ const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [apiStatusText, setApiStatusText] = useState<string>('Ready');
   const [connectionHealth, setConnectionHealth] = useState<'perfect' | 'warning' | 'error'>('perfect');
+  const [isSyncing, setIsSyncing] = useState(false);
   
   const [onboardingStep, setOnboardingStep] = useState<1 | 2 | 3>(1);
   const [onboardingEmail, setOnboardingEmail] = useState('');
@@ -28,44 +30,69 @@ const App: React.FC = () => {
       setApiStatusText('Booting...');
       await fetchFreshKey();
 
-      const savedProfile = localStorage.getItem('utsho_profile');
-      if (savedProfile) {
-        const profile = JSON.parse(savedProfile);
+      const localProfile = localStorage.getItem('utsho_profile');
+      if (localProfile) {
+        const profile = JSON.parse(localProfile) as UserProfile;
         setUserProfile(profile);
         setCustomKeyInput(profile.customApiKey || '');
+        
+        // Fetch from Firebase to sync
+        setIsSyncing(true);
+        try {
+          const cloudProfile = await db.getUserProfile(profile.email);
+          if (cloudProfile) {
+            setUserProfile(cloudProfile);
+            setCustomKeyInput(cloudProfile.customApiKey || '');
+          }
+          const cloudSessions = await db.getSessions(profile.email);
+          setSessions(cloudSessions);
+          if (cloudSessions.length > 0) setActiveSessionId(cloudSessions[0].id);
+        } catch (e) {
+          console.error("Sync error:", e);
+        } finally {
+          setIsSyncing(false);
+        }
+        
         await performHealthCheck(profile.customApiKey);
-      }
-
-      const saved = localStorage.getItem('chat_sessions');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        const formatted = parsed.map((s: any) => ({
-          ...s,
-          createdAt: new Date(s.createdAt),
-          messages: s.messages.map((m: any) => ({ ...m, timestamp: new Date(m.timestamp) }))
-        }));
-        setSessions(formatted);
-        if (formatted.length > 0) setActiveSessionId(formatted[0].id);
-      } else if (savedProfile) {
-        createNewSession();
       }
     };
 
     bootApp();
   }, []);
 
-  const finalizeOnboarding = () => {
+  const finalizeOnboarding = async () => {
     if (!onboardingName || !onboardingEmail || !onboardingGender) return;
+    setIsSyncing(true);
     const profile: UserProfile = {
       name: onboardingName,
-      email: onboardingEmail,
+      email: onboardingEmail.toLowerCase().trim(),
       gender: onboardingGender,
       picture: `https://ui-avatars.com/api/?name=${onboardingName}&background=${onboardingGender === 'male' ? '4f46e5' : 'db2777'}&color=fff`,
       customApiKey: ''
     };
-    setUserProfile(profile);
-    localStorage.setItem('utsho_profile', JSON.stringify(profile));
-    createNewSession();
+    
+    try {
+      // Check if user already exists in cloud
+      const existing = await db.getUserProfile(profile.email);
+      if (existing) {
+        setUserProfile(existing);
+        localStorage.setItem('utsho_profile', JSON.stringify(existing));
+        const cloudSessions = await db.getSessions(profile.email);
+        setSessions(cloudSessions);
+        if (cloudSessions.length > 0) setActiveSessionId(cloudSessions[0].id);
+        else createNewSession(existing.email);
+      } else {
+        await db.saveUserProfile(profile);
+        setUserProfile(profile);
+        localStorage.setItem('utsho_profile', JSON.stringify(profile));
+        createNewSession(profile.email);
+      }
+    } catch (e) {
+      console.error("Onboarding sync error:", e);
+    } finally {
+      setIsSyncing(false);
+    }
+    
     performHealthCheck();
   };
 
@@ -82,25 +109,32 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    if (sessions.length > 0) {
-      localStorage.setItem('chat_sessions', JSON.stringify(sessions));
-    }
-  }, [sessions]);
-
-  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [sessions, activeSessionId, isLoading]);
 
   const saveSettings = async () => {
     if (!userProfile) return;
+    setIsSyncing(true);
     const updatedProfile = { ...userProfile, customApiKey: customKeyInput.trim() };
     setUserProfile(updatedProfile);
     localStorage.setItem('utsho_profile', JSON.stringify(updatedProfile));
+    
+    try {
+      await db.saveUserProfile(updatedProfile);
+    } catch (e) {
+      console.error("Settings sync error:", e);
+    } finally {
+      setIsSyncing(false);
+    }
+
     setIsSettingsOpen(false);
     await performHealthCheck(updatedProfile.customApiKey);
   };
 
-  const createNewSession = () => {
+  const createNewSession = async (emailOverride?: string) => {
+    const email = emailOverride || userProfile?.email;
+    if (!email) return;
+
     const newId = crypto.randomUUID();
     const newSession: ChatSession = {
       id: newId,
@@ -108,9 +142,30 @@ const App: React.FC = () => {
       messages: [],
       createdAt: new Date(),
     };
+    
     setSessions(prev => [newSession, ...prev]);
     setActiveSessionId(newId);
     if (window.innerWidth < 768) setIsSidebarOpen(false);
+
+    try {
+      await db.saveSession(email, newSession);
+    } catch (e) {
+      console.error("Session creation sync error:", e);
+    }
+  };
+
+  const handleDeleteSession = async (e: React.MouseEvent, sid: string) => {
+    e.stopPropagation();
+    if (!userProfile) return;
+    
+    setSessions(prev => prev.filter(x => x.id !== sid));
+    if (activeSessionId === sid) setActiveSessionId(null);
+
+    try {
+      await db.deleteSession(userProfile.email, sid);
+    } catch (err) {
+      console.error("Delete sync error:", err);
+    }
   };
 
   const handleSendMessage = async () => {
@@ -127,11 +182,14 @@ const App: React.FC = () => {
     setInputText('');
     setIsLoading(true);
 
+    let updatedMessages: Message[] = [];
     setSessions(prev => prev.map(s => {
       if (s.id === activeSessionId) {
-        const updatedMessages = [...s.messages, userMessage];
+        updatedMessages = [...s.messages, userMessage];
         const newTitle = s.messages.length === 0 ? currentInput.slice(0, 30) + (currentInput.length > 30 ? '...' : '') : s.title;
-        return { ...s, messages: updatedMessages, title: newTitle };
+        const updatedSession = { ...s, messages: updatedMessages, title: newTitle };
+        db.saveSession(userProfile.email, updatedSession).catch(console.error);
+        return updatedSession;
       }
       return s;
     }));
@@ -145,7 +203,7 @@ const App: React.FC = () => {
     }));
 
     await streamChatResponse(
-      [...(sessions.find(s => s.id === activeSessionId)?.messages || []), userMessage],
+      updatedMessages,
       userProfile,
       (chunk) => {
         setSessions(prev => prev.map(s => {
@@ -158,9 +216,17 @@ const App: React.FC = () => {
           return s;
         }));
       },
-      () => {
+      (fullText) => {
         setIsLoading(false);
         setApiStatusText(userProfile.customApiKey ? 'Personal Key Active' : 'Shared Pool Active');
+        // Final sync of the complete AI message
+        const currentSession = sessions.find(s => s.id === activeSessionId);
+        if (currentSession) {
+          const finalMessages = currentSession.messages.map(m => 
+            m.id === aiMessageId ? { ...m, content: fullText } : m
+          );
+          db.updateSessionMessages(userProfile.email, activeSessionId, finalMessages).catch(console.error);
+        }
       },
       (error) => {
         setIsLoading(false);
@@ -218,6 +284,7 @@ const App: React.FC = () => {
                   >
                     Next Step <ArrowRight size={18} />
                   </button>
+                  <p className="text-[10px] text-center text-zinc-600">History will be synced to your email via Cloud Firestore.</p>
                 </div>
               </div>
             )}
@@ -270,10 +337,10 @@ const App: React.FC = () => {
                 <div className="space-y-4 pt-4">
                   <button 
                     onClick={finalizeOnboarding}
-                    disabled={!onboardingGender}
-                    className="w-full bg-zinc-100 text-zinc-950 font-bold py-4 rounded-2xl hover:bg-white transition-all shadow-xl disabled:opacity-50"
+                    disabled={!onboardingGender || isSyncing}
+                    className="w-full bg-zinc-100 text-zinc-950 font-bold py-4 rounded-2xl hover:bg-white transition-all shadow-xl disabled:opacity-50 flex items-center justify-center gap-2"
                   >
-                    Start Chatting
+                    {isSyncing ? <RefreshCcw size={18} className="animate-spin" /> : 'Start Chatting'}
                   </button>
                   <button onClick={() => setOnboardingStep(2)} className="text-zinc-500 text-xs font-bold uppercase tracking-widest hover:text-white transition-colors">Change Name</button>
                 </div>
@@ -316,7 +383,13 @@ const App: React.FC = () => {
 
             <div className="flex gap-4">
               <button onClick={() => setCustomKeyInput('')} className="flex-1 py-3 text-sm font-bold text-zinc-500 hover:text-white transition-colors">Clear</button>
-              <button onClick={saveSettings} className="flex-1 py-3 text-sm font-bold bg-indigo-600 text-white rounded-xl hover:bg-indigo-500 transition-all shadow-lg active:scale-95">Save Changes</button>
+              <button 
+                onClick={saveSettings} 
+                disabled={isSyncing}
+                className="flex-1 py-3 text-sm font-bold bg-indigo-600 text-white rounded-xl hover:bg-indigo-500 transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2"
+              >
+                {isSyncing ? <RefreshCcw size={14} className="animate-spin" /> : 'Save Changes'}
+              </button>
             </div>
           </div>
         </div>
@@ -331,14 +404,15 @@ const App: React.FC = () => {
             <div className={`w-1.5 h-1.5 rounded-full ${connectionHealth === 'perfect' ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' : 'bg-red-500'}`} /> {apiStatusText}
           </span>
         </div>
-        <button onClick={() => setIsSettingsOpen(true)} className="p-1">
+        <button onClick={() => setIsSettingsOpen(true)} className="p-1 relative">
            <img src={userProfile.picture} className="w-8 h-8 rounded-full border border-zinc-700" />
+           {isSyncing && <div className="absolute -top-1 -right-1 bg-indigo-600 rounded-full p-0.5 animate-spin"><RefreshCcw size={8} /></div>}
         </button>
       </div>
 
       <aside className={`fixed md:relative z-50 inset-y-0 left-0 w-72 bg-zinc-900/50 backdrop-blur-xl border-r border-zinc-800 flex flex-col transition-transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
         <div className="p-4 flex flex-col gap-4">
-          <button onClick={createNewSession} className="flex items-center justify-center gap-2 bg-zinc-100 text-zinc-950 py-3.5 rounded-2xl font-bold hover:bg-white transition-all shadow-xl active:scale-95"><Plus size={18} /> New Conversation</button>
+          <button onClick={() => createNewSession()} className="flex items-center justify-center gap-2 bg-zinc-100 text-zinc-950 py-3.5 rounded-2xl font-bold hover:bg-white transition-all shadow-xl active:scale-95"><Plus size={18} /> New Conversation</button>
           
           <div className="p-3 bg-zinc-800/30 rounded-2xl border border-zinc-800 space-y-3">
             <div className="flex items-center justify-between">
@@ -348,7 +422,10 @@ const App: React.FC = () => {
                   {userProfile.customApiKey ? 'Personal Mode' : 'Smart Shared Pool'}
                 </span>
               </div>
-              <button onClick={() => setIsSettingsOpen(true)} className="text-zinc-500 hover:text-white"><Settings size={12} /></button>
+              <div className="flex items-center gap-2">
+                {isSyncing ? <Cloud size={12} className="text-indigo-400 animate-pulse" /> : <Cloud size={12} className="text-zinc-600" />}
+                <button onClick={() => setIsSettingsOpen(true)} className="text-zinc-500 hover:text-white"><Settings size={12} /></button>
+              </div>
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -365,7 +442,7 @@ const App: React.FC = () => {
             <div key={s.id} onClick={() => { setActiveSessionId(s.id); if (window.innerWidth < 768) setIsSidebarOpen(false); }} className={`group flex items-center gap-3 p-3 rounded-2xl cursor-pointer transition-all ${activeSessionId === s.id ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-500 hover:bg-zinc-800/40'}`}>
               <MessageSquare size={16} className={activeSessionId === s.id ? 'text-indigo-400' : ''} />
               <div className="flex-1 truncate text-sm">{s.title}</div>
-              <button onClick={(e) => { e.stopPropagation(); setSessions(prev => prev.filter(x => x.id !== s.id)); }} className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 transition-opacity"><Trash2 size={14} /></button>
+              <button onClick={(e) => handleDeleteSession(e, s.id)} className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 transition-opacity"><Trash2 size={14} /></button>
             </div>
           ))}
         </div>
@@ -399,7 +476,7 @@ const App: React.FC = () => {
                 <div className="space-y-4">
                   <h2 className="text-4xl md:text-5xl font-black tracking-tight bangla-text bg-clip-text text-transparent bg-gradient-to-b from-white to-zinc-500">স্বাগতম, {userProfile.name.split(' ')[0]}!</h2>
                   <p className="text-zinc-500 text-sm md:text-base max-w-sm mx-auto bangla-text leading-relaxed">
-                    আমি উৎস AI, আপনার সব প্রশ্নের উত্তর দিতে প্রস্তুত।
+                    আমি উৎস AI, আপনার সব প্রশ্নের উত্তর দিতে প্রস্তুত। আপনার কথোপকথন এখন ক্লাউডে সেভ হবে।
                   </p>
                 </div>
               </div>
