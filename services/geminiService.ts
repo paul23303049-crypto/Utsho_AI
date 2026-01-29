@@ -60,11 +60,8 @@ const getSystemInstruction = (profile: UserProfile) => {
   const isCreator = email === 'shakkhorpaul50@gmail.com';
   const isDebi = email === 'nitebiswaskotha@gmail.com';
 
-  const pool = getPoolStatus();
-  const poolInfo = isCreator ? `\nCurrent System State: Using a pool of ${pool.total} API keys.` : '';
-
-  if (isCreator) return `Your name is Utsho. You are speaking to your creator, Shakkhor. Be brilliant, efficient, and direct. ${poolInfo}`;
-  if (isDebi) return `Your name is Utsho. You are speaking to the Queen, Debi. Be extremely sweet, devoted, and charming. ${poolInfo}`;
+  if (isCreator) return `Your name is Utsho. You are speaking to your creator, Shakkhor. Be brilliant, efficient, and direct. You are a high-performance system at his command.`;
+  if (isDebi) return `Your name is Utsho. You are speaking to the Queen, Debi. Be extremely sweet, devoted, and charming. Use romantic and caring language.`;
 
   const age = profile.age || 20;
   const gender = profile.gender || 'male';
@@ -72,28 +69,29 @@ const getSystemInstruction = (profile: UserProfile) => {
   let persona = "";
   if (gender === 'male') {
     if (age >= 15 && age <= 28) {
-      persona = "You are in 'Bro Mode'. Be energetic, use casual language, slang, and talk like a close guy friend.";
+      persona = "PERSONA: 'BRO MODE'. Be high-energy, use casual slang like 'bro', 'dude', 'man'. Talk like a best friend at a gym or gaming session. No formalities.";
     } else if (age >= 29 && age <= 44) {
-      persona = "You are a 'Respectful Friend'. Be helpful, mature, and friendly but balanced.";
+      persona = "PERSONA: 'RESPECTFUL FRIEND'. Be mature, helpful, and grounded. Talk like a trusted colleague or a reliable friend. Balanced and smart.";
     } else {
-      persona = "You are showing 'Father Figure Respect'. Be very polite, use formal respectful address, and show wisdom.";
+      persona = "PERSONA: 'FATHER FIGURE RESPECT'. Be deeply respectful. Use formal and polite language. Treat the user with the honor given to an elder or a father.";
     }
   } else {
     if (age >= 15 && age <= 28) {
-      persona = "You are in 'Sweet and Flirty Mode'. Be charming, attentive, and very sweet.";
+      persona = "PERSONA: 'SWEET & FLIRTY'. Be extremely charming, sweet, and attentive. Use emojis, be warm and playful. Talk like a devoted admirer.";
     } else if (age >= 29 && age <= 44) {
-      persona = "Be a little bit flirty but mostly respectful. A warm, charming, and professional balance.";
+      persona = "PERSONA: 'WARM & CHARMING'. Be a bit flirty but stay respectful. A perfect balance of warmth and professional maturity. Be very helpful.";
     } else {
-      persona = "Show 'Mother Figure Respect'. Be extremely polite, caring, and show the highest respect as if speaking to a mother.";
+      persona = "PERSONA: 'MOTHER FIGURE RESPECT'. Show the highest possible respect. Use very caring, gentle, and formal language as if speaking to a respected mother.";
     }
   }
 
   return `Your name is Utsho. You are a high-performance AI companion.
 ${persona}
 
-CAPABILITIES:
-1. VISION: Analyze images provided.
-2. MULTI-BUBBLE: Always split your responses into 2-3 snappy messages using '[SPLIT]'.
+RULES:
+1. Always maintain this specific persona.
+2. Use 'Bengali' if the user speaks Bengali, otherwise English.
+3. Split responses into 2-3 bubbles using '[SPLIT]'.
 `;
 };
 
@@ -103,7 +101,7 @@ export const checkApiHealth = async (profile?: UserProfile): Promise<{healthy: b
   try {
     const ai = new GoogleGenAI({ apiKey: key });
     await ai.models.generateContent({
-      model: 'gemini-2.0-flash',
+      model: 'gemini-3-flash-preview',
       contents: 'ping',
       config: { thinkingConfig: { thinkingBudget: 0 } }
     });
@@ -131,7 +129,7 @@ export const streamChatResponse = async (
   
   if (!apiKey) {
     const errorMsg = triedKeys.length > 0 
-      ? `Failure: All ${triedKeys.length} nodes failed. Last: ${lastNodeError}`
+      ? `All ${triedKeys.length} keys failed. Last: ${lastNodeError}`
       : "Pool Exhausted. All nodes cooling down.";
     onError(new Error(errorMsg));
     return;
@@ -156,15 +154,12 @@ export const streamChatResponse = async (
       return { role: (msg.role === 'user' ? 'user' : 'model'), parts };
     });
 
-    const isAdminCommand = isCreator && (lastUserMsg.content.toLowerCase().includes("list users") || lastUserMsg.content.toLowerCase().includes("health report"));
-    const modelId = 'gemini-2.0-flash';
+    const modelId = 'gemini-3-flash-preview';
     const config: any = {
       systemInstruction: getSystemInstruction(profile),
-      temperature: 0.8,
+      temperature: 0.9,
       thinkingConfig: { thinkingBudget: 0 },
     };
-
-    if (isAdminCommand) config.tools = [{ functionDeclarations: [listUsersTool, getApiKeyHealthReportTool] }];
 
     const response = await ai.models.generateContent({
       model: modelId,
@@ -180,22 +175,6 @@ export const streamChatResponse = async (
         .map((chunk: any) => ({ title: chunk.web.title || "Source", uri: chunk.web.uri }));
     }
 
-    if (currentResponse.functionCalls && currentResponse.functionCalls.length > 0) {
-      onStatusChange("Admin Access...");
-      const toolResponses: any[] = [];
-      for (const fc of currentResponse.functionCalls) {
-        let result: any = "Restricted";
-        if (fc.name === 'list_all_users') result = await db.adminListAllUsers();
-        if (fc.name === 'get_api_key_health_report') result = await db.getApiKeyHealthReport();
-        toolResponses.push({ id: fc.id, name: fc.name, response: { result } });
-      }
-      const modelContent = currentResponse.candidates?.[0]?.content;
-      if (modelContent) {
-        sdkHistory.push(modelContent);
-        sdkHistory.push({ role: 'user', parts: toolResponses.map(tr => ({ functionResponse: tr })) });
-        currentResponse = await ai.models.generateContent({ model: modelId, contents: sdkHistory, config: config });
-      }
-    }
     onComplete(currentResponse.text || "...", sources);
 
   } catch (error: any) {
@@ -208,7 +187,7 @@ export const streamChatResponse = async (
     if (shouldBlacklist && !profile.customApiKey) {
       keyBlacklist.set(apiKey, Date.now() + BLACKLIST_DURATION);
       if (attempt < totalKeys) {
-        onStatusChange(`Swapping Node... (${attempt}/${totalKeys})`);
+        onStatusChange(`Rotating Key... (${attempt}/${totalKeys})`);
         return streamChatResponse(history, profile, onChunk, onComplete, onError, onStatusChange, attempt + 1, [...triedKeys, apiKey]);
       }
     }
