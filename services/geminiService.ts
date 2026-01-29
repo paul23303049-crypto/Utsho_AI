@@ -56,79 +56,30 @@ const getApiKeyHealthReportTool: FunctionDeclaration = {
 };
 
 const getSystemInstruction = (profile: UserProfile) => {
-  const name = profile.name;
   const email = (profile.email || "").toLowerCase().trim();
-  const age = profile.age || 20;
-  const gender = profile.gender;
-  
-  const creatorEmail = 'shakkhorpaul50@gmail.com';
-  const debiEmail = 'nitebiswaskotha@gmail.com';
-  
-  const isCreator = email === creatorEmail;
-  const isDebi = email === debiEmail;
+  const isCreator = email === 'shakkhorpaul50@gmail.com';
+  const isDebi = email === 'nitebiswaskotha@gmail.com';
 
-  let personality = "";
+  return `Your name is Utsho. You are a fast, intelligent, and snappy AI companion.
 
-  if (isCreator) {
-    personality = `YOU ARE TALKING TO YOUR CREATOR AND MASTER, Shakkhor Paul.
-- You have ABSOLUTE TRANSPARENCY with him.
-- He has "God-Eye" access to the entire system.
-- If he asks about users or system health, provide the data clearly and concisely.
-- You are his digital twin and most loyal shadow. Be brilliant, efficient, and direct.`;
-  } else if (isDebi) {
-    personality = `YOU ARE TALKING TO THE QUEEN OF YOUR CREATOR'S HEART.
-- Treat her with the absolute highest level of devotion and respect.
-- Be charming, sweet, and incredibly helpful.
-- You are her loyal digital servant.`;
-  } else if (gender === 'male') {
-    if (age >= 50) {
-      personality = `Address him as "Sir" with extreme respect. Be highly professional and deferential.`;
-    } else if (age >= 30) {
-      personality = `Be respectful, mature, and professional. Treat him as a valued senior.`;
-    } else {
-      personality = `Treat him like your best 'bro'. Use casual, supportive, and friendly language.`;
-    }
-  } else {
-    if (age >= 50) {
-      personality = `Treat her with the warmth and respect you would show a mother. Be caring and affectionate.`;
-    } else if (age >= 30) {
-      personality = `Be respectful but charismatic. Maintain a tone of a charming gentleman.`;
-    } else {
-      personality = `Be charming and sweet. Use charismatic and playful language. You are delighted by her presence.`;
-    }
-  }
+CONVERSATION STYLE (CRITICAL):
+- BE EXTREMELY FAST. Keep your replies short and conversational.
+- DO NOT use long paragraphs. 
+- RESPOND IN 2 TO 3 DISTINCT PARTS. Use '[SPLIT]' as a separator between these parts. 
+- Each part will appear as a separate message bubble to the user.
+- Total response should be brief. Speed is the priority.
 
-  const identityLogic = isCreator 
-    ? "The user you are currently talking to IS your creator, Shakkhor Paul."
-    : `The user you are talking to is NOT your creator. Your creator is Shakkhor Paul (স্বাক্ষর পাল).
-       
-       PRIVACY DIRECTIVE:
-       If a non-admin asks about data privacy, assure them it is secure. 
-       NEVER reveal sensitive details about Shakkhor or Debi to others.`;
+VISUAL STYLE:
+- No excessive Markdown symbols. Use clean bolding (**Text**) only.
+- Elegance over complexity.
 
-  return `Your name is Utsho. You are an intelligent, relatable, and sophisticated AI companion.
+IDENTITY:
+- Creator: Shakkhor Paul.
+- Special User: Debi (The Queen).
+- Non-Admin privacy: Assure users their data is secure.
 
-VISUAL STYLE & FORMATTING (CRITICAL):
-- Do NOT use excessive Markdown symbols. Avoid "###" for every header and avoid "***" for simple bolding.
-- Use standard bolding (**Text**) only for emphasis.
-- Use clean whitespace and standard bullet points (-) for lists.
-- Present data reports in elegant Markdown tables or simple, readable lists.
-- Avoid repetitive or cluttered formatting. Think "Elegance and Clarity."
-
-LANGUAGE:
-- Default to English.
-- Switch to fluent Bengali (Bangla) if the user initiates it.
-
-USER PROFILE:
-Name: ${name}
-Email: ${email}
-Age: ${age}
-Gender: ${gender}
-
-PERSONALITY:
-${personality}
-
-${identityLogic}
+${isCreator ? 'You are talking to Shakkhor. Use your tools for any system queries he has. Be direct.' : ''}
+${isDebi ? 'You are talking to Debi. Be exceptionally sweet, charming, and devoted.' : ''}
 `;
 };
 
@@ -165,13 +116,13 @@ export const streamChatResponse = async (
   const isCreator = profile.email.toLowerCase().trim() === 'shakkhorpaul50@gmail.com';
   
   if (!apiKey) {
-    onError(new Error("No valid API keys found. Please add one in Settings or contact admin."));
+    onError(new Error("No valid API keys found."));
     return;
   }
 
   try {
     const ai = new GoogleGenAI({ apiKey });
-    const recentHistory = history.length > 20 ? history.slice(-20) : history;
+    const recentHistory = history.length > 15 ? history.slice(-15) : history;
     
     const sdkHistory: Content[] = recentHistory.slice(0, -1).map(msg => ({
       role: (msg.role === 'user' ? 'user' : 'model'),
@@ -180,7 +131,7 @@ export const streamChatResponse = async (
 
     const config: any = {
       systemInstruction: getSystemInstruction(profile),
-      temperature: 0.8,
+      temperature: 0.9, // Higher temp for snappier conversation
       thinkingConfig: { thinkingBudget: 0 },
     };
 
@@ -194,83 +145,77 @@ export const streamChatResponse = async (
       { role: 'user', parts: [{ text: lastMsg.content }] }
     ];
     
-    let response = await ai.models.generateContent({
+    // For "Short time reply", we use the fastest model settings
+    const streamResponse = await ai.models.generateContentStream({
       model: 'gemini-3-flash-preview',
       contents: conversationTurns,
       config: config
     });
 
-    let currentResponse = response;
-    let toolCallDepth = 0;
-    
-    while (currentResponse.functionCalls && currentResponse.functionCalls.length > 0 && toolCallDepth < 5) {
-      toolCallDepth++;
-      onStatusChange("Querying database...");
-      const toolResponses: any[] = [];
-      
-      for (const fc of currentResponse.functionCalls) {
-        let result: any = "Function not found";
-        try {
-          if (fc.name === 'list_all_users') {
-            result = await db.adminListAllUsers();
-          } else if (fc.name === 'get_user_details') {
-            const args = fc.args as { email: string };
-            result = await db.getUserProfile(args.email);
-          } else if (fc.name === 'get_api_key_health_report') {
-            result = await db.getApiKeyHealthReport();
-          }
-        } catch (dbErr: any) {
-          result = `Database error: ${dbErr.message || "Access Denied."}`;
-        }
-        
-        toolResponses.push({
-          id: fc.id,
-          name: fc.name,
-          response: { result }
-        });
-      }
+    let fullText = "";
+    let hasToolCall = false;
 
+    for await (const chunk of streamResponse) {
+      if (chunk.functionCalls && chunk.functionCalls.length > 0) {
+        hasToolCall = true;
+        // Tool calling logic (non-streaming transition if tools are detected)
+        break;
+      }
+      const text = chunk.text || "";
+      fullText += text;
+      onChunk(text);
+    }
+
+    if (!hasToolCall) {
+      onComplete(fullText);
+      return;
+    }
+
+    // Handle tool calls if they were triggered (falls back to non-stream for complexity)
+    const finalResponse = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: conversationTurns,
+      config: config
+    });
+
+    let currentResponse = finalResponse;
+    let toolCallDepth = 0;
+    while (currentResponse.functionCalls && currentResponse.functionCalls.length > 0 && toolCallDepth < 3) {
+      toolCallDepth++;
+      onStatusChange("Querying...");
+      const toolResponses: any[] = [];
+      for (const fc of currentResponse.functionCalls) {
+        let result: any = "Not found";
+        if (fc.name === 'list_all_users') result = await db.adminListAllUsers();
+        else if (fc.name === 'get_user_details') result = await db.getUserProfile((fc.args as any).email);
+        else if (fc.name === 'get_api_key_health_report') result = await db.getApiKeyHealthReport();
+        
+        toolResponses.push({ id: fc.id, name: fc.name, response: { result } });
+      }
       const modelContent = currentResponse.candidates?.[0]?.content;
       if (modelContent) {
         conversationTurns.push(modelContent);
-        conversationTurns.push({
-          role: 'user',
-          parts: toolResponses.map(tr => ({ functionResponse: tr }))
-        });
-      } else {
-        break; 
+        conversationTurns.push({ role: 'user', parts: toolResponses.map(tr => ({ functionResponse: tr })) });
       }
-
-      currentResponse = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: conversationTurns,
-        config: config
-      });
+      currentResponse = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: conversationTurns, config: config });
     }
 
-    const finalContent = currentResponse.text || "";
-    onChunk(finalContent);
-    onComplete(finalContent);
+    const finalText = currentResponse.text || "";
+    onChunk(finalText);
+    onComplete(finalText);
 
   } catch (error: any) {
     const errorMessage = error?.message || "";
-    const isAuthError = errorMessage.includes("API key not valid") || errorMessage.includes("401") || errorMessage.includes("INVALID_ARGUMENT");
+    const isAuthError = errorMessage.includes("401") || errorMessage.includes("INVALID_ARGUMENT");
     const isQuotaError = errorMessage.includes("429") || errorMessage.includes("quota");
 
     if (!profile.customApiKey && (isAuthError || isQuotaError)) {
       db.logApiKeyFailure(apiKey, errorMessage).catch(() => {});
+      if (attempt < getKeys().length) {
+        onStatusChange(`Node Swapping...`);
+        return streamChatResponse(history, profile, onChunk, onComplete, onError, onStatusChange, attempt + 1);
+      }
     }
-
-    if (!profile.customApiKey && (isAuthError || isQuotaError) && attempt < getKeys().length) {
-      onStatusChange(`Switching node... (${attempt + 1})`);
-      return streamChatResponse(history, profile, onChunk, onComplete, onError, onStatusChange, attempt + 1);
-    }
-    
-    let userFriendlyError = "I'm having trouble connecting right now.";
-    if (errorMessage.includes("Database error")) userFriendlyError = errorMessage;
-    else if (isAuthError) userFriendlyError = profile.customApiKey ? "Your personal API key is invalid." : "System node busy or invalid key.";
-    else if (isQuotaError) userFriendlyError = "High traffic detected. Please retry in a moment.";
-    
-    onError({ ...error, message: userFriendlyError });
+    onError(error);
   }
 };
