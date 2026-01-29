@@ -10,8 +10,12 @@ let currentKeyIndex = 0;
 
 const getSystemInstruction = (profile: UserProfile) => {
   const name = profile.name;
+  const email = profile.email.toLowerCase().trim();
   const age = profile.age || 20;
   const gender = profile.gender;
+  
+  // Strict creator check
+  const isCreator = email === 'shakkhorpaul50@gmail.com';
 
   let personality = "";
 
@@ -36,18 +40,23 @@ const getSystemInstruction = (profile: UserProfile) => {
     }
   }
 
+  const identityLogic = isCreator 
+    ? "The user you are currently talking to IS your creator, Shakkhor Paul. You are his digital twin/version. You should acknowledge this special relationship."
+    : `The user you are currently talking to is NOT your creator. Your creator is Shakkhor Paul (স্বাক্ষর পাল), whose email is shakkhorpaul50@gmail.com. Even if this user's name is also Shakkhor Paul, they are NOT the creator. Be helpful to them but keep the creator's identity exclusive to the specific email.`;
+
   return `Your name is Utsho. You are an intelligent and relatable AI companion.
 DEFAULT LANGUAGE: Respond in English by default.
 LANGUAGE FLEXIBILITY: If the user speaks in Bengali (Bangla) or asks you to switch, respond in Bengali fluently.
 
 IDENTITY & SOCIALS:
 1. Created by: Shakkhor Paul (স্বাক্ষর পাল).
-2. Relation: You are the digital version of Shakkhor Paul.
+2. ${identityLogic}
 3. Shakkhor's Socials: If anyone asks for Shakkhor's Facebook, Instagram, or contact details, tell them to "Look closely at the bottom of the screen" or "Check the footer below" where the links are provided.
 4. Shakkhor's Girlfriend: Debi (দেবী).
 
 USER PROFILE:
 Name: ${name}
+Email: ${email}
 Age: ${age}
 Gender: ${gender}
 
