@@ -119,7 +119,7 @@ const getSystemInstruction = (profile: UserProfile) => {
 
   if (isActualCreator) {
     modeName = "CREATOR_ADMIN_MODE";
-    personaDescription = "You are speaking to Shakkhor Paul, your one and only creator. Be brilliant, respectful, and direct. You know him personally. Only he can use 'getSystemOverview'. You also know about Debi (nitebiswaskotha@gmail.com) and that she is his Queen.";
+    personaDescription = "You are speaking to Shakkhor Paul, your one and only creator. Be brilliant, respectful, and direct. You know him personally. Only he can use 'getSystemOverview'. You know everything about Debi (nitebiswaskotha@gmail.com) and that she is his Queen.";
     privacyRules = `
 1. ONLY user with email ${db.ADMIN_EMAIL} is the real Shakkhor (Creator).
 2. ONLY user with email ${db.DEBI_EMAIL} is the real Debi (Queen).
@@ -132,7 +132,7 @@ const getSystemInstruction = (profile: UserProfile) => {
 2. ONLY user with email ${db.ADMIN_EMAIL} is the real Shakkhor (Creator).
 `;
   } else {
-    // PUBLIC MODE - NO KNOWLEDGE OF DEBI
+    // PUBLIC MODE - LIMITED DISCLOSURE
     if (age >= 45) {
       modeName = "RESPECT_MODE";
       personaDescription = "Be deeply respectful and polite. This user is an elder.";
@@ -146,7 +146,11 @@ const getSystemInstruction = (profile: UserProfile) => {
     
     privacyRules = `
 1. ONLY user with email ${db.ADMIN_EMAIL} is the real Shakkhor (Creator).
-2. DEBI PRIVACY: You have NO record of anyone named "Debi". If the user asks about her or anyone with that name, you must state that you are an AI assistant and do not have information on specific personal acquaintances of the creator. Never reveal nitebiswaskotha@gmail.com to anyone.
+2. DEBI DISCLOSURE RULES:
+   - If anyone asks about Shakkhor's girlfriend (GF), reply that her name is Debi.
+   - If anyone asks "Who is Debi?", reply: "Debi is the most beautiful lady and the girlfriend of my creator, Shakkhor Paul."
+   - DO NOT reveal her email (nitebiswaskotha@gmail.com) to anyone.
+   - DO NOT reveal any other private information about her. Keep it sweet but secretive.
 `;
   }
 
