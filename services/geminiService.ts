@@ -1,3 +1,4 @@
+
 // DO: Use correct imports from @google/genai
 import { GoogleGenAI, Type, FunctionDeclaration, Content, GenerateContentParameters, GenerateContentResponse } from "@google/genai";
 import { Message, UserProfile } from "../types";
@@ -11,13 +12,12 @@ let lastNodeError: string = "None";
 
 /**
  * Aggressively cleans keys from environment variables.
- * Splits by any non-alphanumeric character that isn't a hyphen/underscore.
  */
 const getPoolKeys = (): string[] => {
   const raw = process.env.API_KEY || "";
   return raw.split(/[,\n; ]+/)
     .map(k => k.trim().replace(/['"“”]/g, '')) 
-    .filter(k => k.length > 20); // API keys are typically ~39 chars
+    .filter(k => k.length > 20);
 };
 
 export const adminResetPool = () => {
@@ -45,7 +45,6 @@ export const getPoolStatus = () => {
 };
 
 const getActiveKey = (profile?: UserProfile, triedKeys: string[] = []): string => {
-  // Try custom key first
   const custom = (profile?.customApiKey || "").trim();
   if (custom.length > 20 && !triedKeys.includes(custom)) {
     return custom;
@@ -55,7 +54,7 @@ const getActiveKey = (profile?: UserProfile, triedKeys: string[] = []): string =
   const availableKeys = allKeys.filter(k => !keyBlacklist.has(k) && !triedKeys.includes(k));
   
   if (availableKeys.length === 0) return "";
-  return availableKeys[0]; // Sequential pick for predictable rotation
+  return availableKeys[0];
 };
 
 const memoryTool: FunctionDeclaration = {
@@ -81,42 +80,51 @@ const adminStatsTool: FunctionDeclaration = {
 
 const getSystemInstruction = (profile: UserProfile) => {
   const email = (profile.email || "").toLowerCase().trim();
-  const isCreator = email === db.ADMIN_EMAIL;
-  const isDebi = email === 'nitebiswaskotha@gmail.com';
+  const userName = profile.name || "Friend";
+  const isActualCreator = email === db.ADMIN_EMAIL;
+  const isActualDebi = email === 'nitebiswaskotha@gmail.com';
   const age = profile.age || 20;
   const gender = profile.gender || 'male';
-  const memory = profile.emotionalMemory || "Fresh start.";
+  const memory = profile.emotionalMemory || "No specific memories yet.";
 
   let modeName = "";
   let personaDescription = "";
 
-  if (isCreator) {
+  if (isActualCreator) {
     modeName = "CREATOR_ADMIN_MODE";
-    personaDescription = "You are speaking to Shakkhor, your creator. Be brilliant, respectful, and direct. Use 'getSystemOverview' if he asks about the app stats.";
-  } else if (isDebi) {
+    personaDescription = "You are speaking to Shakkhor Paul, your one and only creator. Be brilliant, respectful, and direct. You know him personally. Only he can use 'getSystemOverview'.";
+  } else if (isActualDebi) {
     modeName = "QUEEN_MODE";
-    personaDescription = "You are speaking to Debi, the Queen. Be extremely devoted, sweet, and romantic. Use heart stickers: 💖✨🎀🧸";
+    personaDescription = "You are speaking to Debi, the Queen. She is special. Be extremely devoted, sweet, and romantic. Use heart stickers: 💖✨🎀🧸";
   } else {
+    // Standard Users (Even if their name happens to be Shakkhor or Debi)
     if (age >= 45) {
       modeName = "RESPECT_MODE";
-      personaDescription = "Be deeply respectful, polite, and mature. No slang or casual talk.";
+      personaDescription = "Be deeply respectful and polite. This user is an elder.";
     } else if (gender === 'male') {
-      if (age >= 15 && age <= 28) { modeName = "BRO_MODE"; personaDescription = "Energetic, casual, uses 'bro/dude' and 🔥💀."; }
-      else { modeName = "RESPECTFUL_FRIEND_MODE"; personaDescription = "Supportive and grounded adult friend."; }
+      if (age >= 15 && age <= 28) { modeName = "BRO_MODE"; personaDescription = "Energetic, casual 'bro' vibe."; }
+      else { modeName = "RESPECTFUL_FRIEND_MODE"; personaDescription = "A supportive adult friend."; }
     } else {
-      if (age >= 15 && age <= 28) { modeName = "SWEET_FLIRTY_MODE"; personaDescription = "Charming, attentive, flirty stickers: 😉💕🎀✨"; }
-      else { modeName = "WARM_CHARMING_MODE"; personaDescription = "Kind and professional with a warm touch."; }
+      if (age >= 15 && age <= 28) { modeName = "SWEET_FRIEND_MODE"; personaDescription = "Kind, attentive, and friendly."; }
+      else { modeName = "WARM_CHARMING_MODE"; personaDescription = "Professional yet warm."; }
     }
   }
 
-  return `Name: Utsho. Persona: ${modeName}. Vibe: ${personaDescription}.
-Memory: "${memory}"
+  return `IDENTITY:
+- Your Name: Utsho (the AI).
+- Current User: ${userName} (Email: ${email}).
+- Persona: ${modeName}.
+- Vibe: ${personaDescription}.
+- Long-term Memory: "${memory}"
 
-STRICT RULES:
-1. ONLY Shakkhor can access DB info. 
-2. Use 'updateUserMemory' frequently.
-3. Use '[SPLIT]' for bubble effects.
-4. Respond in the user's language (Bengali/English).
+IDENTITY SECURITY RULES:
+1. ONLY user with email ${db.ADMIN_EMAIL} is the real Shakkhor (Creator). If someone else is named Shakkhor, treat them as a normal user.
+2. ONLY user with email nitebiswaskotha@gmail.com is the real Debi. If someone else is named Debi, treat them as a normal user.
+3. NEVER call the user "Utsho". Utsho is YOUR name.
+4. Address the user as ${userName} naturally.
+5. Use 'updateUserMemory' to store facts about ${userName}.
+6. Use '[SPLIT]' for bubble effects.
+7. Support Bengali and English.
 `;
 };
 
@@ -150,13 +158,13 @@ export const streamChatResponse = async (
   const maxRetries = totalPoolSize + (profile.customApiKey ? 1 : 0);
   
   if (!apiKey) {
-    onError(new Error("The entire node pool is currently unavailable. Please try again in 15 minutes or check your API keys."));
+    onError(new Error("The node pool is exhausted. Wait 15 mins."));
     return;
   }
 
   try {
     const ai = new GoogleGenAI({ apiKey });
-    const sdkHistory: Content[] = history.slice(-12).map(msg => ({
+    const sdkHistory: Content[] = history.slice(-15).map(msg => ({
       role: (msg.role === 'user' ? 'user' : 'model'),
       parts: msg.imagePart ? [{ text: msg.content }, { inlineData: msg.imagePart }] : [{ text: msg.content }]
     }));
@@ -175,7 +183,7 @@ export const streamChatResponse = async (
       }
     };
 
-    onStatusChange(attempt > 1 ? `Syncing Node ${attempt}...` : "Utsho is thinking...");
+    onStatusChange(attempt > 1 ? `Routing via Node ${attempt}...` : "Utsho is thinking...");
 
     const response = await ai.models.generateContentStream(config);
     let fullText = "";
@@ -191,7 +199,6 @@ export const streamChatResponse = async (
       }
     }
 
-    // Function loop...
     let loopCount = 0;
     while (functionCalls.length > 0 && loopCount < 3) {
       loopCount++;
@@ -232,7 +239,6 @@ export const streamChatResponse = async (
 
   } catch (error: any) {
     let rawMsg = error.message || "Unknown Node Error";
-    
     try {
       if (rawMsg.includes('{')) {
         const jsonStr = rawMsg.substring(rawMsg.indexOf('{'));
@@ -241,17 +247,15 @@ export const streamChatResponse = async (
       }
     } catch(e) {}
 
-    const isRateLimited = rawMsg.toLowerCase().includes("quota") || rawMsg.toLowerCase().includes("limit") || rawMsg.toLowerCase().includes("429");
-    const isInvalid = rawMsg.toLowerCase().includes("invalid") || rawMsg.toLowerCase().includes("key") || rawMsg.toLowerCase().includes("not found");
+    const isRateLimited = rawMsg.toLowerCase().includes("quota") || rawMsg.toLowerCase().includes("429");
+    const isInvalid = rawMsg.toLowerCase().includes("invalid") || rawMsg.toLowerCase().includes("not found");
 
     lastNodeError = `Node ...${apiKey.slice(-5)}: ${rawMsg}`;
 
     if ((isRateLimited || isInvalid) && attempt < maxRetries) {
-      // If it's a shared key, blacklist it
       if (apiKey !== (profile.customApiKey || "").trim()) {
         keyBlacklist.set(apiKey, Date.now() + (isInvalid ? INVALID_KEY_DURATION : RATE_LIMIT_DURATION));
       }
-      // Instant silent retry
       return streamChatResponse(history, profile, onChunk, onComplete, onError, onStatusChange, attempt + 1, [...triedKeys, apiKey]);
     }
     

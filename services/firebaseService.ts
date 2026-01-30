@@ -32,8 +32,9 @@ const firebaseConfig = {
   appId: process.env.FIREBASE_APP_ID
 };
 
+// ABSOLUTE IDENTITY CONSTANTS
 export const ADMIN_EMAIL = 'shakkhorpaul50@gmail.com';
-const DEBI_EMAIL = 'nitebiswaskotha@gmail.com';
+export const DEBI_EMAIL = 'nitebiswaskotha@gmail.com';
 
 const isConfigValid = !!firebaseConfig.apiKey && !!firebaseConfig.projectId;
 
@@ -55,25 +56,21 @@ export const isAdmin = (email: string) => email.toLowerCase().trim() === ADMIN_E
 export const isDebi = (email: string) => email.toLowerCase().trim() === DEBI_EMAIL;
 
 /**
- * Fetches system statistics. Restricted to Shakkhor only.
- * If this fails with "Missing or insufficient permissions", 
- * the Firestore Rules in the Firebase Console must be updated.
+ * Fetches system statistics. Restricted to Shakkhor's verified email only.
  */
 export const getSystemStats = async (requesterEmail: string) => {
   if (!db) return { error: "Database offline" };
   
   const normalizedRequester = requesterEmail.toLowerCase().trim();
   if (normalizedRequester !== ADMIN_EMAIL) {
-    throw new Error("Access Denied: You are not Shakkhor.");
+    throw new Error("Access Denied: You are not Shakkhor Paul.");
   }
 
   try {
-    // 1. Get User Count (Requires 'read' on 'users' collection)
     const usersCollection = collection(db, 'users');
     const userCountSnap = await getCountFromServer(usersCollection);
     const totalUsers = userCountSnap.data().count;
     
-    // 2. Get API Health (Requires 'read' on 'system/api_health/keys' collection)
     const healthRef = collection(db, 'system', 'api_health', 'keys');
     const healthSnap = await getDocs(healthRef);
     const healthData = healthSnap.docs.map(d => d.data());
@@ -89,8 +86,7 @@ export const getSystemStats = async (requesterEmail: string) => {
     };
   } catch (err: any) {
     console.error("Firestore Admin Permission Error:", err);
-    // This message is passed back to the AI to show to the admin
-    throw new Error(`Firestore Error: ${err.message}. Please ensure the 'MASTER ADMIN OVERRIDE' rule is published in the Firebase Console.`);
+    throw new Error(`Firestore Error: ${err.message}.`);
   }
 };
 
