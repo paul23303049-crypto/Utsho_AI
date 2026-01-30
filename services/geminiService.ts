@@ -11,14 +11,32 @@ const INVALID_KEY_DURATION = 1000 * 60 * 60 * 24; // 24 hours
 let lastNodeError: string = "None";
 
 /**
- * Aggressively cleans keys from environment variables.
- * Designed to handle up to 49+ keys separated by commas, spaces, or newlines.
+ * Robustly extracts API keys from the environment string.
+ * Handles commas, semicolons, newlines, and multiple spaces.
  */
 const getPoolKeys = (): string[] => {
   const raw = process.env.API_KEY || "";
-  return raw.split(/[,\n; ]+/)
-    .map(k => k.trim().replace(/['"“”]/g, '')) 
-    .filter(k => k.length > 20); 
+  
+  // 1. Split by common delimiters: comma, semicolon, newline, vertical bar, or any whitespace
+  const parts = raw.split(/[\s,;|\n\r]+/);
+  
+  // 2. Clean each part
+  const cleanedKeys = parts
+    .map(k => k.trim()
+      .replace(/['"“”]/g, '') // Remove quotes
+      .replace(/[\u200B-\u200D\uFEFF]/g, '') // Remove invisible zero-width characters
+    )
+    .filter(k => k.length >= 30); // Gemini keys are ~39 chars. 30 is a safe floor.
+
+  // 3. Remove duplicates to ensure we don't double-count or waste attempts
+  const uniqueKeys = [...new Set(cleanedKeys)];
+  
+  // Debug logging to help the developer see what's happening
+  if (uniqueKeys.length < 40 && raw.length > 500) {
+    console.warn(`API Pool Parser: Found ${uniqueKeys.length} unique keys. If you expected 49, check for duplicates or invalid separators.`);
+  }
+
+  return uniqueKeys;
 };
 
 export const adminResetPool = () => {
@@ -162,7 +180,7 @@ export const streamChatResponse = async (
 ): Promise<void> => {
   const apiKey = getActiveKey(profile, triedKeys);
   const totalPoolSize = getPoolKeys().length;
-  const maxRetries = Math.min(totalPoolSize + 1, 10); // Limit retries to 10 for performance
+  const maxRetries = Math.min(totalPoolSize + 1, 10); 
   
   if (!apiKey) {
     onError(new Error("The node pool is exhausted. Please wait 15 minutes for cooldown."));
@@ -259,12 +277,10 @@ export const streamChatResponse = async (
 
     lastNodeError = `Node ...${apiKey.slice(-5)}: ${rawMsg}`;
 
-    // Blacklist management for pooled keys
     if ((isRateLimited || isInvalid) && attempt < maxRetries) {
       if (apiKey !== (profile.customApiKey || "").trim()) {
         keyBlacklist.set(apiKey, Date.now() + (isInvalid ? INVALID_KEY_DURATION : RATE_LIMIT_DURATION));
       }
-      // SILENT RETRY: Instantly try a different node from the pool
       return streamChatResponse(history, profile, onChunk, onComplete, onError, onStatusChange, attempt + 1, [...triedKeys, apiKey]);
     }
     
