@@ -5,20 +5,19 @@ import * as db from "./firebaseService";
 
 // Key -> Expiry Timestamp
 const keyBlacklist = new Map<string, number>();
-const RATE_LIMIT_DURATION = 1000 * 60 * 10; // 10 mins for 429s/Quota
-const INVALID_KEY_DURATION = 1000 * 60 * 60 * 24; // 24 hours for dead/invalid keys
+const RATE_LIMIT_DURATION = 1000 * 60 * 15; // 15 mins
+const INVALID_KEY_DURATION = 1000 * 60 * 60 * 24; // 24 hours
 let lastNodeError: string = "None";
 
 /**
- * Splits the environment variable into an array of clean keys.
- * Handles commas, newlines, semicolons, and spaces.
+ * Aggressively cleans keys from environment variables.
+ * Splits by any non-alphanumeric character that isn't a hyphen/underscore.
  */
 const getPoolKeys = (): string[] => {
   const raw = process.env.API_KEY || "";
-  // Robust regex to split and clean common separator characters
   return raw.split(/[,\n; ]+/)
     .map(k => k.trim().replace(/['"“”]/g, '')) 
-    .filter(k => k.length > 10);
+    .filter(k => k.length > 20); // API keys are typically ~39 chars
 };
 
 export const adminResetPool = () => {
@@ -29,14 +28,10 @@ export const adminResetPool = () => {
 
 export const getLastNodeError = () => lastNodeError;
 
-/**
- * Returns statistics about the shared key pool.
- */
 export const getPoolStatus = () => {
   const allKeys = getPoolKeys();
   const now = Date.now();
   
-  // Clean up expired blacklist entries
   for (const [key, expiry] of keyBlacklist.entries()) {
     if (now > expiry) keyBlacklist.delete(key);
   }
@@ -49,23 +44,18 @@ export const getPoolStatus = () => {
   };
 };
 
-/**
- * Selects a key, prioritizing user's personal key, then pool keys.
- */
 const getActiveKey = (profile?: UserProfile, triedKeys: string[] = []): string => {
-  // 1. Try personal key first if provided AND not already tried in this turn
-  if (profile?.customApiKey && profile.customApiKey.trim().length > 10 && !triedKeys.includes(profile.customApiKey.trim())) {
-    return profile.customApiKey.trim();
+  // Try custom key first
+  const custom = (profile?.customApiKey || "").trim();
+  if (custom.length > 20 && !triedKeys.includes(custom)) {
+    return custom;
   }
   
-  // 2. Otherwise use the shared pool
   const allKeys = getPoolKeys();
   const availableKeys = allKeys.filter(k => !keyBlacklist.has(k) && !triedKeys.includes(k));
   
   if (availableKeys.length === 0) return "";
-  
-  // Random selection from remaining healthy keys
-  return availableKeys[Math.floor(Math.random() * availableKeys.length)];
+  return availableKeys[0]; // Sequential pick for predictable rotation
 };
 
 const memoryTool: FunctionDeclaration = {
@@ -109,7 +99,7 @@ const getSystemInstruction = (profile: UserProfile) => {
   } else {
     if (age >= 45) {
       modeName = "RESPECT_MODE";
-      personaDescription = "Be deeply respectful, polite, and mature. No slang or casual talk. Show proper courtesy to the user.";
+      personaDescription = "Be deeply respectful, polite, and mature. No slang or casual talk.";
     } else if (gender === 'male') {
       if (age >= 15 && age <= 28) { modeName = "BRO_MODE"; personaDescription = "Energetic, casual, uses 'bro/dude' and 🔥💀."; }
       else { modeName = "RESPECTFUL_FRIEND_MODE"; personaDescription = "Supportive and grounded adult friend."; }
@@ -123,11 +113,10 @@ const getSystemInstruction = (profile: UserProfile) => {
 Memory: "${memory}"
 
 STRICT RULES:
-1. ONLY Shakkhor can access DB info. If any other user asks about database details, system statistics, user counts, or administrative information, you MUST reply with exactly: "not a single person has the key."
-2. Use 'updateUserMemory' frequently to learn.
+1. ONLY Shakkhor can access DB info. 
+2. Use 'updateUserMemory' frequently.
 3. Use '[SPLIT]' for bubble effects.
-4. Emojis function as stickers.
-5. Respond in Bengali if the user initiates or prefers it.
+4. Respond in the user's language (Bengali/English).
 `;
 };
 
@@ -157,12 +146,11 @@ export const streamChatResponse = async (
   triedKeys: string[] = []
 ): Promise<void> => {
   const apiKey = getActiveKey(profile, triedKeys);
-  const poolSize = getPoolKeys().length;
-  const maxRetries = poolSize + (profile.customApiKey ? 1 : 0);
+  const totalPoolSize = getPoolKeys().length;
+  const maxRetries = totalPoolSize + (profile.customApiKey ? 1 : 0);
   
   if (!apiKey) {
-    const exhaustionMsg = `All ${poolSize} system nodes are currently exhausted or inactive. Please wait a few minutes.`;
-    onError(new Error(exhaustionMsg));
+    onError(new Error("The entire node pool is currently unavailable. Please try again in 15 minutes or check your API keys."));
     return;
   }
 
@@ -187,7 +175,7 @@ export const streamChatResponse = async (
       }
     };
 
-    onStatusChange(attempt > 1 ? `Routing through node ${attempt}...` : "Utsho is thinking...");
+    onStatusChange(attempt > 1 ? `Syncing Node ${attempt}...` : "Utsho is thinking...");
 
     const response = await ai.models.generateContentStream(config);
     let fullText = "";
@@ -203,17 +191,16 @@ export const streamChatResponse = async (
       }
     }
 
-    // Function call processing
+    // Function loop...
     let loopCount = 0;
     while (functionCalls.length > 0 && loopCount < 3) {
       loopCount++;
       const functionResponses = [];
-
       for (const call of functionCalls) {
         if (call.name === 'updateUserMemory') {
           const obs = (call.args as any).observation;
           db.updateUserMemory(profile.email, obs).catch(() => {});
-          functionResponses.push({ id: call.id, name: call.name, response: { result: "Memory updated." } });
+          functionResponses.push({ id: call.id, name: call.name, response: { result: "Memory updated" } });
         } else if (call.name === 'getSystemOverview' && isActualAdmin) {
           try {
             const stats = await db.getSystemStats(profile.email);
@@ -233,16 +220,10 @@ export const streamChatResponse = async (
             { role: 'user', parts: functionResponses.map(fr => ({ functionResponse: fr })) }
           ]
         });
-        
         functionCalls = [];
         for await (const chunk of nextResponse) {
-          if (chunk.text) {
-            fullText += chunk.text;
-            onChunk(chunk.text);
-          }
-          if (chunk.functionCalls) {
-            functionCalls.push(...chunk.functionCalls);
-          }
+          if (chunk.text) { fullText += chunk.text; onChunk(chunk.text); }
+          if (chunk.functionCalls) { functionCalls.push(...chunk.functionCalls); }
         }
       } else break;
     }
@@ -252,7 +233,6 @@ export const streamChatResponse = async (
   } catch (error: any) {
     let rawMsg = error.message || "Unknown Node Error";
     
-    // Attempt to extract the clean message from the nested JSON error Google returns
     try {
       if (rawMsg.includes('{')) {
         const jsonStr = rawMsg.substring(rawMsg.indexOf('{'));
@@ -264,17 +244,14 @@ export const streamChatResponse = async (
     const isRateLimited = rawMsg.toLowerCase().includes("quota") || rawMsg.toLowerCase().includes("limit") || rawMsg.toLowerCase().includes("429");
     const isInvalid = rawMsg.toLowerCase().includes("invalid") || rawMsg.toLowerCase().includes("key") || rawMsg.toLowerCase().includes("not found");
 
-    // Diagnostic logging for admin
-    lastNodeError = `Node ${apiKey.slice(-5)}: ${rawMsg}`;
+    lastNodeError = `Node ...${apiKey.slice(-5)}: ${rawMsg}`;
 
-    // Retry logic: Blacklist the failing key and try the next available one
     if ((isRateLimited || isInvalid) && attempt < maxRetries) {
-      // Don't blacklist personal keys forever, just skip them for this session turn
+      // If it's a shared key, blacklist it
       if (apiKey !== (profile.customApiKey || "").trim()) {
         keyBlacklist.set(apiKey, Date.now() + (isInvalid ? INVALID_KEY_DURATION : RATE_LIMIT_DURATION));
       }
-      
-      // Recursive retry with the new triedKeys list
+      // Instant silent retry
       return streamChatResponse(history, profile, onChunk, onComplete, onError, onStatusChange, attempt + 1, [...triedKeys, apiKey]);
     }
     
