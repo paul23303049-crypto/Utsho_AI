@@ -1,3 +1,4 @@
+
 import { initializeApp, getApp, getApps } from 'firebase/app';
 import { 
   getFirestore, 
@@ -9,6 +10,7 @@ import {
   query, 
   orderBy, 
   deleteDoc,
+  increment,
   Timestamp,
   Firestore,
   getCountFromServer
@@ -16,11 +18,10 @@ import {
 import { 
   getAuth, 
   signInWithPopup, 
-  GoogleAuthProvider
+  GoogleAuthProvider, 
+  Auth 
 } from 'firebase/auth';
-// Fix: Import Auth as a type to resolve export error
-import type { Auth } from 'firebase/auth';
-import { UserProfile, ChatSession, Message } from '../types';
+import { UserProfile, ChatSession, Message, ApiKeyHealth } from '../types';
 
 const firebaseConfig = {
   apiKey: process.env.FIREBASE_API_KEY,
@@ -55,6 +56,8 @@ export const isDebi = (email: string) => email.toLowerCase().trim() === DEBI_EMA
 
 /**
  * Fetches system statistics. Restricted to Shakkhor only.
+ * If this fails with "Missing or insufficient permissions", 
+ * the Firestore Rules in the Firebase Console must be updated.
  */
 export const getSystemStats = async (requesterEmail: string) => {
   if (!db) return { error: "Database offline" };
@@ -65,19 +68,29 @@ export const getSystemStats = async (requesterEmail: string) => {
   }
 
   try {
+    // 1. Get User Count (Requires 'read' on 'users' collection)
     const usersCollection = collection(db, 'users');
     const userCountSnap = await getCountFromServer(usersCollection);
     const totalUsers = userCountSnap.data().count;
     
+    // 2. Get API Health (Requires 'read' on 'system/api_health/keys' collection)
+    const healthRef = collection(db, 'system', 'api_health', 'keys');
+    const healthSnap = await getDocs(healthRef);
+    const healthData = healthSnap.docs.map(d => d.data());
+    
     return {
       totalUsers,
+      activeKeysReport: healthData.length > 0 
+        ? healthData.map(d => `${d.keyId}: ${d.status}`).join(', ') 
+        : "No keys registered in health logs.",
       timestamp: new Date().toLocaleString(),
       adminVerified: true,
       dbStatus: "Connected & Authorized"
     };
   } catch (err: any) {
     console.error("Firestore Admin Permission Error:", err);
-    throw new Error(`Firestore Error: ${err.message}`);
+    // This message is passed back to the AI to show to the admin
+    throw new Error(`Firestore Error: ${err.message}. Please ensure the 'MASTER ADMIN OVERRIDE' rule is published in the Firebase Console.`);
   }
 };
 
@@ -110,6 +123,7 @@ export const saveUserProfile = async (profile: UserProfile) => {
     age: profile.age,
     picture: profile.picture,
     googleId: profile.googleId || '',
+    customApiKey: profile.customApiKey || '',
     emotionalMemory: profile.emotionalMemory || ''
   }, { merge: true });
 };
@@ -135,6 +149,24 @@ export const getUserProfile = async (email: string): Promise<UserProfile | null>
   const userSnap = await getDoc(userRef);
   if (userSnap.exists()) return userSnap.data() as UserProfile;
   return null;
+};
+
+export const logApiKeyFailure = async (key: string, errorMessage: string) => {
+  if (!db) return;
+  const keyId = `key_${key.slice(-6)}`;
+  const healthRef = doc(db, 'system', 'api_health', 'keys', keyId);
+  let status: 'expired' | 'rate-limited' = 'rate-limited';
+  if (errorMessage.toLowerCase().includes('not found') || errorMessage.toLowerCase().includes('invalid')) status = 'expired';
+  await setDoc(healthRef, {
+    keyId, lastError: errorMessage, failureCount: increment(1), lastChecked: Timestamp.now(), status: status
+  }, { merge: true });
+};
+
+export const getApiKeyHealthReport = async (): Promise<ApiKeyHealth[]> => {
+  if (!db) throw new Error("No database.");
+  const healthRef = collection(db, 'system', 'api_health', 'keys');
+  const snap = await getDocs(healthRef);
+  return snap.docs.map(d => ({ ...d.data(), lastChecked: d.data().lastChecked.toDate() } as ApiKeyHealth));
 };
 
 const sanitizeMessages = (messages: Message[]) => {
