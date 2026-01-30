@@ -192,16 +192,19 @@ export const streamChatResponse = async (
         }
       }
 
-      if (functionResponses.length > 0) {
+      const modelContent = currentResponse.candidates?.[0]?.content;
+      if (functionResponses.length > 0 && modelContent) {
         // Continue the conversation with the tool output
         currentResponse = await ai.models.generateContent({
           ...config,
           contents: [
             ...sdkHistory,
-            currentResponse.candidates[0].content, // The tool call part
-            { role: 'user', parts: [{ functionResponse: functionResponses[0] }] } // Fix: Wrap in parts
-          ] as any
+            modelContent, // The tool call part
+            { role: 'user', parts: functionResponses.map(fr => ({ functionResponse: fr })) }
+          ]
         });
+      } else {
+        break;
       }
     }
 
