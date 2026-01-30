@@ -12,12 +12,13 @@ let lastNodeError: string = "None";
 
 /**
  * Aggressively cleans keys from environment variables.
+ * Designed to handle up to 49+ keys separated by commas, spaces, or newlines.
  */
 const getPoolKeys = (): string[] => {
   const raw = process.env.API_KEY || "";
   return raw.split(/[,\n; ]+/)
     .map(k => k.trim().replace(/['"“”]/g, '')) 
-    .filter(k => k.length > 20);
+    .filter(k => k.length > 20); 
 };
 
 export const adminResetPool = () => {
@@ -32,6 +33,7 @@ export const getPoolStatus = () => {
   const allKeys = getPoolKeys();
   const now = Date.now();
   
+  // Cleanup expired blacklist entries
   for (const [key, expiry] of keyBlacklist.entries()) {
     if (now > expiry) keyBlacklist.delete(key);
   }
@@ -44,6 +46,9 @@ export const getPoolStatus = () => {
   };
 };
 
+/**
+ * Pick a random healthy key to distribute load evenly.
+ */
 const getActiveKey = (profile?: UserProfile, triedKeys: string[] = []): string => {
   const custom = (profile?.customApiKey || "").trim();
   if (custom.length > 20 && !triedKeys.includes(custom)) {
@@ -54,7 +59,10 @@ const getActiveKey = (profile?: UserProfile, triedKeys: string[] = []): string =
   const availableKeys = allKeys.filter(k => !keyBlacklist.has(k) && !triedKeys.includes(k));
   
   if (availableKeys.length === 0) return "";
-  return availableKeys[0];
+  
+  // LOAD BALANCING: Pick a random key from the available pool
+  const randomIndex = Math.floor(Math.random() * availableKeys.length);
+  return availableKeys[randomIndex];
 };
 
 const memoryTool: FunctionDeclaration = {
@@ -82,7 +90,7 @@ const getSystemInstruction = (profile: UserProfile) => {
   const email = (profile.email || "").toLowerCase().trim();
   const userName = profile.name || "Friend";
   const isActualCreator = email === db.ADMIN_EMAIL;
-  const isActualDebi = email === 'nitebiswaskotha@gmail.com';
+  const isActualDebi = email === db.DEBI_EMAIL;
   const age = profile.age || 20;
   const gender = profile.gender || 'male';
   const memory = profile.emotionalMemory || "No specific memories yet.";
@@ -97,7 +105,6 @@ const getSystemInstruction = (profile: UserProfile) => {
     modeName = "QUEEN_MODE";
     personaDescription = "You are speaking to Debi, the Queen. She is special. Be extremely devoted, sweet, and romantic. Use heart stickers: 💖✨🎀🧸";
   } else {
-    // Standard Users (Even if their name happens to be Shakkhor or Debi)
     if (age >= 45) {
       modeName = "RESPECT_MODE";
       personaDescription = "Be deeply respectful and polite. This user is an elder.";
@@ -118,8 +125,8 @@ const getSystemInstruction = (profile: UserProfile) => {
 - Long-term Memory: "${memory}"
 
 IDENTITY SECURITY RULES:
-1. ONLY user with email ${db.ADMIN_EMAIL} is the real Shakkhor (Creator). If someone else is named Shakkhor, treat them as a normal user.
-2. ONLY user with email nitebiswaskotha@gmail.com is the real Debi. If someone else is named Debi, treat them as a normal user.
+1. ONLY user with email ${db.ADMIN_EMAIL} is the real Shakkhor (Creator).
+2. ONLY user with email ${db.DEBI_EMAIL} is the real Debi.
 3. NEVER call the user "Utsho". Utsho is YOUR name.
 4. Address the user as ${userName} naturally.
 5. Use 'updateUserMemory' to store facts about ${userName}.
@@ -155,10 +162,10 @@ export const streamChatResponse = async (
 ): Promise<void> => {
   const apiKey = getActiveKey(profile, triedKeys);
   const totalPoolSize = getPoolKeys().length;
-  const maxRetries = totalPoolSize + (profile.customApiKey ? 1 : 0);
+  const maxRetries = Math.min(totalPoolSize + 1, 10); // Limit retries to 10 for performance
   
   if (!apiKey) {
-    onError(new Error("The node pool is exhausted. Wait 15 mins."));
+    onError(new Error("The node pool is exhausted. Please wait 15 minutes for cooldown."));
     return;
   }
 
@@ -183,7 +190,7 @@ export const streamChatResponse = async (
       }
     };
 
-    onStatusChange(attempt > 1 ? `Routing via Node ${attempt}...` : "Utsho is thinking...");
+    onStatusChange(attempt > 1 ? `Retrying (Node ${attempt}/${maxRetries})...` : "Utsho is thinking...");
 
     const response = await ai.models.generateContentStream(config);
     let fullText = "";
@@ -252,10 +259,12 @@ export const streamChatResponse = async (
 
     lastNodeError = `Node ...${apiKey.slice(-5)}: ${rawMsg}`;
 
+    // Blacklist management for pooled keys
     if ((isRateLimited || isInvalid) && attempt < maxRetries) {
       if (apiKey !== (profile.customApiKey || "").trim()) {
         keyBlacklist.set(apiKey, Date.now() + (isInvalid ? INVALID_KEY_DURATION : RATE_LIMIT_DURATION));
       }
+      // SILENT RETRY: Instantly try a different node from the pool
       return streamChatResponse(history, profile, onChunk, onComplete, onError, onStatusChange, attempt + 1, [...triedKeys, apiKey]);
     }
     
