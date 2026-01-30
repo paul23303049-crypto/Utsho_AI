@@ -54,29 +54,42 @@ export const isDatabaseEnabled = () => !!db;
 export const isAdmin = (email: string) => email.toLowerCase().trim() === ADMIN_EMAIL;
 export const isDebi = (email: string) => email.toLowerCase().trim() === DEBI_EMAIL;
 
+/**
+ * Fetches system statistics. Restricted to Shakkhor only.
+ * If this fails with "Missing or insufficient permissions", 
+ * double check the Firestore Rules provided in the README.
+ */
 export const getSystemStats = async (requesterEmail: string) => {
   if (!db) return { error: "Database offline" };
   
-  // Security Layer: Only the specific admin email can trigger this
-  if (requesterEmail.toLowerCase().trim() !== ADMIN_EMAIL) {
-    throw new Error("Unauthorized: Only the creator Shakkhor can access system info.");
+  const normalizedRequester = requesterEmail.toLowerCase().trim();
+  if (normalizedRequester !== ADMIN_EMAIL) {
+    throw new Error("Unauthorized access attempt. This tool is exclusive to Shakkhor.");
   }
 
   try {
-    const userCount = await getCountFromServer(collection(db, 'users'));
+    // Attempt to get user count
+    const usersCollection = collection(db, 'users');
+    const userCountSnap = await getCountFromServer(usersCollection);
+    
+    // Attempt to get API health info
     const healthRef = collection(db, 'system', 'api_health', 'keys');
     const healthSnap = await getDocs(healthRef);
     const healthData = healthSnap.docs.map(d => d.data());
     
     return {
-      totalUsers: userCount.data().count,
-      activeKeysReport: healthData.map(d => `${d.keyId}: ${d.status} (${d.failureCount} fails)`).join(', '),
+      totalUsers: userCountSnap.data().count,
+      activeKeysReport: healthData.length > 0 
+        ? healthData.map(d => `${d.keyId}: ${d.status}`).join(', ') 
+        : "No key logs yet",
       timestamp: new Date().toLocaleString(),
-      status: "System fully operational"
+      authStatus: "Admin Verified",
+      message: "Database connection successful."
     };
   } catch (err: any) {
-    console.error("Firebase stats error:", err);
-    throw new Error(`Database Error: ${err.message}. Please update your Firestore Rules.`);
+    console.error("Critical Permission Error in getSystemStats:", err);
+    // Explicitly returning the error to the AI so it can inform the admin
+    throw new Error(`Firestore Permission Error: ${err.message}. Ensure you have published the 'MASTER RULE' in Firebase Console.`);
   }
 };
 
@@ -89,7 +102,7 @@ export const loginWithGoogle = async (): Promise<UserProfile | null> => {
   if (user && user.email) {
     return {
       name: user.displayName || 'User',
-      email: user.email,
+      email: user.email.toLowerCase(),
       picture: user.photoURL || `https://ui-avatars.com/api/?name=${user.displayName}&background=4f46e5&color=fff`,
       gender: 'male', 
       age: 0,        
@@ -101,10 +114,10 @@ export const loginWithGoogle = async (): Promise<UserProfile | null> => {
 
 export const saveUserProfile = async (profile: UserProfile) => {
   if (!db || !profile.email) return;
-  const userRef = doc(db, 'users', profile.email);
+  const userRef = doc(db, 'users', profile.email.toLowerCase());
   await setDoc(userRef, {
     name: profile.name,
-    email: profile.email,
+    email: profile.email.toLowerCase(),
     gender: profile.gender,
     age: profile.age,
     picture: profile.picture,
@@ -116,7 +129,8 @@ export const saveUserProfile = async (profile: UserProfile) => {
 
 export const updateUserMemory = async (email: string, memoryUpdate: string) => {
   if (!db || !email) return;
-  const userRef = doc(doc(db, 'users', email), 'private', 'memory'); 
+  const emailLower = email.toLowerCase();
+  const userRef = doc(doc(db, 'users', emailLower), 'private', 'memory'); 
   const snap = await getDoc(userRef);
   let existingMemory = "";
   if (snap.exists()) {
@@ -124,13 +138,13 @@ export const updateUserMemory = async (email: string, memoryUpdate: string) => {
   }
   const newMemory = `${existingMemory}\n[${new Date().toLocaleDateString()}]: ${memoryUpdate}`.slice(-3000); 
   await setDoc(userRef, { emotionalMemory: newMemory }, { merge: true });
-  await setDoc(doc(db, 'users', email), { emotionalMemory: newMemory }, { merge: true });
+  await setDoc(doc(db, 'users', emailLower), { emotionalMemory: newMemory }, { merge: true });
   return newMemory;
 };
 
 export const getUserProfile = async (email: string): Promise<UserProfile | null> => {
   if (!db) return null;
-  const userRef = doc(db, 'users', email);
+  const userRef = doc(db, 'users', email.toLowerCase());
   const userSnap = await getDoc(userRef);
   if (userSnap.exists()) return userSnap.data() as UserProfile;
   return null;
@@ -170,7 +184,8 @@ const sanitizeMessages = (messages: Message[]) => {
 
 export const saveSession = async (email: string, session: ChatSession) => {
   if (!db) return;
-  const sessionRef = doc(db, 'users', email, 'sessions', session.id);
+  const emailLower = email.toLowerCase();
+  const sessionRef = doc(db, 'users', emailLower, 'sessions', session.id);
   const payload = {
     id: session.id,
     title: session.title,
@@ -182,7 +197,8 @@ export const saveSession = async (email: string, session: ChatSession) => {
 
 export const updateSessionMessages = async (email: string, sessionId: string, messages: Message[], title?: string) => {
   if (!db) return;
-  const sessionRef = doc(db, 'users', email, 'sessions', sessionId);
+  const emailLower = email.toLowerCase();
+  const sessionRef = doc(db, 'users', emailLower, 'sessions', sessionId);
   const payload: any = {
     messages: sanitizeMessages(messages)
   };
@@ -192,7 +208,7 @@ export const updateSessionMessages = async (email: string, sessionId: string, me
 
 export const getSessions = async (email: string): Promise<ChatSession[]> => {
   if (!db) return [];
-  const sessionsRef = collection(db, 'users', email, 'sessions');
+  const sessionsRef = collection(db, 'users', email.toLowerCase(), 'sessions');
   const q = query(sessionsRef, orderBy('createdAt', 'desc'));
   const querySnapshot = await getDocs(q);
   return querySnapshot.docs.map(doc => {
@@ -210,6 +226,6 @@ export const getSessions = async (email: string): Promise<ChatSession[]> => {
 
 export const deleteSession = async (email: string, sessionId: string) => {
   if (!db) return;
-  const sessionRef = doc(db, 'users', email, 'sessions', sessionId);
+  const sessionRef = doc(db, 'users', email.toLowerCase(), 'sessions', sessionId);
   await deleteDoc(sessionRef);
 };
