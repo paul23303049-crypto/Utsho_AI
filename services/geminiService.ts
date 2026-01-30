@@ -3,11 +3,15 @@ import { GoogleGenAI, Type, FunctionDeclaration, Content, GenerateContentParamet
 import { Message, UserProfile } from "../types";
 import * as db from "./firebaseService";
 
+// Key -> Expiry Timestamp
 const keyBlacklist = new Map<string, number>();
-const BLACKLIST_DURATION = 1000 * 60 * 30; // 30 mins
+const RATE_LIMIT_DURATION = 1000 * 60 * 10; // 10 mins for 429s
+const INVALID_KEY_DURATION = 1000 * 60 * 60 * 24; // 24 hours for dead keys
 let lastNodeError: string = "None";
 
-// Helper to get all available keys from the shared pool
+/**
+ * Splits the environment variable into an array of clean keys.
+ */
 const getPoolKeys = (): string[] => {
   const raw = process.env.API_KEY || "";
   return raw.split(/[,\n; ]+/)
@@ -23,12 +27,18 @@ export const adminResetPool = () => {
 
 export const getLastNodeError = () => lastNodeError;
 
+/**
+ * Returns statistics about the shared key pool.
+ */
 export const getPoolStatus = () => {
   const allKeys = getPoolKeys();
   const now = Date.now();
+  
+  // Clean up expired blacklist entries
   for (const [key, expiry] of keyBlacklist.entries()) {
     if (now > expiry) keyBlacklist.delete(key);
   }
+
   const exhausted = allKeys.filter(k => keyBlacklist.has(k)).length;
   return {
     total: allKeys.length,
@@ -37,19 +47,22 @@ export const getPoolStatus = () => {
   };
 };
 
-const getActiveKey = (profile?: UserProfile, excludeKeys: string[] = []): string => {
-  // 1. Prioritize user's personal key if they provided one
-  if (profile?.customApiKey && profile.customApiKey.trim().length > 10) {
+/**
+ * Selects a key, prioritizing user's personal key, then pool keys.
+ */
+const getActiveKey = (profile?: UserProfile, triedKeys: string[] = []): string => {
+  // 1. Try personal key first if provided AND not already tried in this turn
+  if (profile?.customApiKey && profile.customApiKey.trim().length > 10 && !triedKeys.includes(profile.customApiKey)) {
     return profile.customApiKey.trim();
   }
   
   // 2. Otherwise use the shared pool
   const allKeys = getPoolKeys();
-  const availableKeys = allKeys.filter(k => !keyBlacklist.has(k) && !excludeKeys.includes(k));
+  const availableKeys = allKeys.filter(k => !keyBlacklist.has(k) && !triedKeys.includes(k));
   
   if (availableKeys.length === 0) return "";
   
-  // Pick a random healthy key from the pool
+  // Random selection for load balancing
   return availableKeys[Math.floor(Math.random() * availableKeys.length)];
 };
 
@@ -118,7 +131,7 @@ STRICT RULES:
 
 export const checkApiHealth = async (profile?: UserProfile): Promise<{healthy: boolean, error?: string}> => {
   const key = getActiveKey(profile);
-  if (!key) return { healthy: false, error: "No healthy nodes available" };
+  if (!key) return { healthy: false, error: "Pool Empty" };
   try {
     const ai = new GoogleGenAI({ apiKey: key });
     await ai.models.generateContent({
@@ -142,10 +155,11 @@ export const streamChatResponse = async (
   triedKeys: string[] = []
 ): Promise<void> => {
   const apiKey = getActiveKey(profile, triedKeys);
-  const totalPoolSize = getPoolKeys().length;
+  const poolSize = getPoolKeys().length;
+  const maxRetries = poolSize + 1; // Try the whole pool + user key
   
   if (!apiKey) {
-    onError(new Error(`System Exhausted: No active API nodes found. Tried ${triedKeys.length} keys.`));
+    onError(new Error(`All ${poolSize} nodes are currently inactive. Please wait 10 mins.`));
     return;
   }
 
@@ -170,9 +184,9 @@ export const streamChatResponse = async (
       }
     };
 
-    onStatusChange(attempt > 1 ? `Switching Node (${attempt}/${totalPoolSize})...` : "Utsho is thinking...");
+    onStatusChange(attempt > 1 ? `Rotating Pool (${attempt}/${maxRetries})...` : "Utsho is thinking...");
 
-    let response = await ai.models.generateContentStream(config);
+    const response = await ai.models.generateContentStream(config);
     let fullText = "";
     let functionCalls = [];
 
@@ -186,6 +200,7 @@ export const streamChatResponse = async (
       }
     }
 
+    // Function call loop
     let loopCount = 0;
     while (functionCalls.length > 0 && loopCount < 3) {
       loopCount++;
@@ -245,15 +260,16 @@ export const streamChatResponse = async (
 
     lastNodeError = rawMsg;
 
-    const isRetryable = rawMsg.toLowerCase().includes("quota") || 
-                       rawMsg.toLowerCase().includes("limit") || 
-                       rawMsg.toLowerCase().includes("429") ||
-                       rawMsg.toLowerCase().includes("invalid") ||
-                       rawMsg.toLowerCase().includes("key");
+    const isRateLimited = rawMsg.toLowerCase().includes("quota") || rawMsg.toLowerCase().includes("limit") || rawMsg.toLowerCase().includes("429");
+    const isInvalid = rawMsg.toLowerCase().includes("invalid") || rawMsg.toLowerCase().includes("key") || rawMsg.toLowerCase().includes("not found");
 
-    // If it's a key issue and we have more keys in the pool, try another one silently
-    if (isRetryable && attempt < totalPoolSize && !profile.customApiKey) {
-      keyBlacklist.set(apiKey, Date.now() + BLACKLIST_DURATION);
+    // If it's an error with a specific key, blacklist it and try the rest of the pool
+    if ((isRateLimited || isInvalid) && attempt < maxRetries) {
+      // Don't blacklist personal keys in the shared map, just skip them for this turn
+      if (apiKey !== profile.customApiKey) {
+        keyBlacklist.set(apiKey, Date.now() + (isInvalid ? INVALID_KEY_DURATION : RATE_LIMIT_DURATION));
+      }
+      
       return streamChatResponse(history, profile, onChunk, onComplete, onError, onStatusChange, attempt + 1, [...triedKeys, apiKey]);
     }
     

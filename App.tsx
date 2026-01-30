@@ -70,7 +70,9 @@ const App: React.FC = () => {
     const interval = setInterval(() => {
       setPoolInfo(getPoolStatus());
       const err = getLastNodeError();
-      setLastErrorDiagnostic(err.length > 80 ? err.substring(0, 80) + "..." : err);
+      if (err !== "None") {
+        setLastErrorDiagnostic(err.length > 80 ? err.substring(0, 80) + "..." : err);
+      }
     }, 4000);
     return () => clearInterval(interval);
   }, []);
@@ -106,12 +108,12 @@ const App: React.FC = () => {
   };
 
   const performHealthCheck = async (profile?: UserProfile) => {
-    setApiStatusText('Checking...');
+    setApiStatusText('Verifying...');
     const { healthy, error } = await checkApiHealth(profile || userProfile || undefined);
     setConnectionHealth(healthy ? 'perfect' : 'error');
-    setApiStatusText(healthy ? 'Active' : 'Sync Error');
+    setApiStatusText(healthy ? 'Synced' : 'Node Issue');
     setPoolInfo(getPoolStatus());
-    if (error) setLastErrorDiagnostic(error.substring(0, 80));
+    if (error && error !== "ping") setLastErrorDiagnostic(error.substring(0, 80));
   };
 
   const handleResetPool = () => {
@@ -159,7 +161,7 @@ const App: React.FC = () => {
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setApiStatusText("Optimizing...");
+    setApiStatusText("Processing...");
     const reader = new FileReader();
     reader.onloadend = async () => {
       const originalBase64 = reader.result as string;
@@ -167,7 +169,7 @@ const App: React.FC = () => {
       const dataOnly = compressed.split(',')[1];
       setSelectedImage({ data: dataOnly, mimeType: 'image/jpeg' });
       setImagePreview(compressed);
-      setApiStatusText("Active");
+      setApiStatusText("Ready");
     };
     reader.readAsDataURL(file);
   };
@@ -203,7 +205,7 @@ const App: React.FC = () => {
       history,
       userProfile,
       (chunk) => {
-        // Real-time chunk handling could be implemented here
+        // Real-time chunk handling could be implemented if desired
       },
       (fullText, sources, imageUrl) => {
         setIsLoading(false);
@@ -221,6 +223,7 @@ const App: React.FC = () => {
         setSessions(prev => prev.map(s => s.id === activeSessionId ? { ...s, messages: updatedMessages } : s));
         if (db.isDatabaseEnabled()) db.updateSessionMessages(userProfile.email, activeSessionId, updatedMessages, newTitle).catch(console.error);
         setPoolInfo(getPoolStatus());
+        setApiStatusText("Synced");
       },
       (err) => {
         setIsLoading(false);
@@ -230,6 +233,7 @@ const App: React.FC = () => {
         const finalMessages = [...history, errorMsg];
         setSessions(prev => prev.map(s => s.id === activeSessionId ? { ...s, messages: finalMessages } : s));
         if (db.isDatabaseEnabled()) db.updateSessionMessages(userProfile.email, activeSessionId, finalMessages, newTitle).catch(console.error);
+        setApiStatusText("Pool Error");
       },
       (status) => setApiStatusText(status)
     );
@@ -303,14 +307,14 @@ const App: React.FC = () => {
           <div className="p-4 bg-zinc-900 border border-zinc-800 rounded-[2rem] shadow-2xl space-y-4">
              <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
                 <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                  <Zap size={12} className="text-amber-400" /> {isAdmin ? 'POOL HEALTH' : 'SYSTEM STATUS'}
+                  <Zap size={12} className="text-amber-400" /> {isAdmin ? 'POOL HEALTH' : 'SYSTEM POOL'}
                 </div>
                 {isAdmin && <button onClick={handleResetPool} className="text-zinc-600 hover:text-indigo-400 transition-colors"><RefreshCcw size={12} /></button>}
              </div>
              
              <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-bold text-zinc-500">ACTIVE NODES</span>
+                  <span className="text-[10px] font-bold text-zinc-500">AVAILABLE NODES</span>
                   <span className="text-[10px] font-black text-emerald-400">{poolInfo.active}/{poolInfo.total}</span>
                 </div>
                 <div className="h-1.5 w-full bg-zinc-800 rounded-full overflow-hidden">
