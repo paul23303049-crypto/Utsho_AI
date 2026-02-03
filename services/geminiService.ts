@@ -23,7 +23,7 @@ const getPoolKeys = (): string[] => {
   // 2. Clean each part
   const cleanedKeys = parts
     .map(k => k.trim()
-      .replace(/['"密密]/g, '') // Remove quotes
+      .replace(/['"“”]/g, '') // Remove quotes
       .replace(/[\u200B-\u200D\uFEFF]/g, '') // Remove invisible zero-width characters
     )
     .filter(k => k.length >= 30); // Gemini keys are ~39 chars. 30 is a safe floor.
@@ -188,7 +188,7 @@ export const checkApiHealth = async (profile?: UserProfile): Promise<{healthy: b
   try {
     const ai = new GoogleGenAI({ apiKey: key });
     await ai.models.generateContent({
-      model: 'gemini-2-flash-preview',
+      model: 'gemini-3-flash-preview',
       contents: 'ping',
     });
     return { healthy: true };
@@ -228,7 +228,7 @@ export const streamChatResponse = async (
     if (isActualAdmin) tools.push(adminStatsTool);
 
     const config: GenerateContentParameters = {
-      model: 'gemini-2-flash-preview',
+      model: 'gemini-3-flash-preview',
       contents: sdkHistory,
       config: {
         systemInstruction: getSystemInstruction(profile),
