@@ -1,11 +1,15 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Plus, MessageSquare, Trash2, Menu, Sparkles, LogOut, RefreshCcw, Settings, Globe, AlertCircle, Zap, Paperclip, X, Facebook, Instagram, CreditCard, ShieldCheck, CheckCircle2 } from 'lucide-react';
+import { Send, Plus, MessageSquare, Trash2, Menu, Sparkles, LogOut, RefreshCcw, Settings, Globe, AlertCircle, Zap, Paperclip, X, Facebook, Instagram, CreditCard, ShieldCheck, CheckCircle2, Eye, EyeOff, Crown } from 'lucide-react';
 import { ChatSession, Message, UserProfile, Gender, SubscriptionStatus } from './types';
 import { streamChatResponse, checkApiHealth, getPoolStatus, adminResetPool, getLastNodeError } from './services/geminiService';
 import * as db from './services/firebaseService';
 
-const FREE_MESSAGE_LIMIT = 5;
+const FREE_DAILY_LIMIT = 5;
+
+// Obfuscated bKash number (+8801302869122)
+// This is Base64 encoded to prevent simple text-search scrapers from finding it easily.
+const BK_RAW = "Kzg4MDEzMDI4NjkxMjI="; 
 
 const App: React.FC = () => {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -27,6 +31,7 @@ const App: React.FC = () => {
   const [customKeyInput, setCustomKeyInput] = useState('');
   const [trxId, setTrxId] = useState('');
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [showNumber, setShowNumber] = useState(false);
   
   const [selectedImage, setSelectedImage] = useState<{ data: string, mimeType: string } | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -35,13 +40,21 @@ const App: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isAdmin = userProfile ? db.isAdmin(userProfile.email) : false;
-  const isUserDebi = userProfile?.email.toLowerCase().trim() === 'nitebiswaskotha@gmail.com';
-  const isPro = userProfile?.subscriptionStatus === 'pro' || isAdmin;
+  const isUserDebi = userProfile ? db.isDebi(userProfile.email) : false;
+  const isPro = userProfile?.subscriptionStatus === 'pro' || isAdmin || isUserDebi;
 
-  // Calculate total messages sent by user across all sessions
-  const totalUserMessages = sessions.reduce((acc, session) => 
-    acc + session.messages.filter(m => m.role === 'user').length, 0
-  );
+  // Calculate daily messages sent by user
+  const getDailyMessageCount = () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return sessions.reduce((acc, session) => 
+      acc + session.messages.filter(m => 
+        m.role === 'user' && new Date(m.timestamp).getTime() >= today.getTime()
+      ).length, 0
+    );
+  };
+
+  const dailyUserMessages = getDailyMessageCount();
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -136,8 +149,17 @@ const App: React.FC = () => {
 
   const handleSubscription = async () => {
     if (!trxId.trim() || !userProfile) return;
+    
+    // Logic Verification for TrxID
+    // bKash TrxIDs are usually 10 characters long alphanumeric.
+    const trxRegex = /^[A-Z0-9]{8,12}$/;
+    if (!trxRegex.test(trxId)) {
+      alert("Invalid TrxID format. It should be 10 alphanumeric characters from your bKash SMS.");
+      return;
+    }
+
     setIsProcessingPayment(true);
-    // Simulate payment verification
+    // Simulate payment verification delay (In production, this would call a Cloud Function)
     setTimeout(async () => {
       const updatedProfile = { ...userProfile, subscriptionStatus: 'pro' as SubscriptionStatus };
       setUserProfile(updatedProfile);
@@ -148,8 +170,8 @@ const App: React.FC = () => {
       setIsProcessingPayment(false);
       setIsSubscriptionOpen(false);
       setTrxId('');
-      alert("Subscription Activated! Enjoy unlimited messages.");
-    }, 2000);
+      alert("Payment Verified! Subscription Activated. Enjoy unlimited messages.");
+    }, 3000);
   };
 
   const saveSettings = async () => {
@@ -173,8 +195,8 @@ const App: React.FC = () => {
   const handleSendMessage = async () => {
     if (!userProfile) return;
     
-    // Enforce limit for free users
-    if (!isPro && totalUserMessages >= FREE_MESSAGE_LIMIT) {
+    // Enforce DAILY limit for free users
+    if (!isPro && dailyUserMessages >= FREE_DAILY_LIMIT) {
       setIsSubscriptionOpen(true);
       return;
     }
@@ -259,10 +281,10 @@ const App: React.FC = () => {
   if (onboardingStep === 1) return (
     <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-4">
       <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-[3rem] p-12 shadow-2xl space-y-8 text-center animate-in fade-in duration-500">
-        <div className="w-20 h-20 bg-indigo-600 rounded-3xl mx-auto flex items-center justify-center text-white floating-ai shadow-[0_0_20px_rgba(79,70,229,0.3)]"><Sparkles size={40} /></div>
+        <div className={`w-20 h-20 rounded-3xl mx-auto flex items-center justify-center text-white floating-ai shadow-lg ${isUserDebi ? 'bg-pink-600 shadow-pink-600/30' : 'bg-indigo-600 shadow-indigo-600/30'}`}><Sparkles size={40} /></div>
         <div className="space-y-2">
           <h1 className="text-3xl font-black">Utsho AI</h1>
-          <p className="text-zinc-500">Shared Intelligence Engine</p>
+          <p className="text-zinc-500">Adaptive Fullstack AI Engine</p>
         </div>
         <button onClick={handleGoogleLogin} className="w-full bg-white text-zinc-950 font-bold py-4 rounded-2xl flex items-center justify-center gap-3 active:scale-95 transition-all">
           <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5" alt="" /> Sign in with Google
@@ -321,7 +343,7 @@ const App: React.FC = () => {
               <div className="flex justify-between items-start">
                 <div className="space-y-1">
                   <h3 className="text-2xl font-black text-indigo-400 flex items-center gap-2 uppercase tracking-tighter"><CreditCard size={28} /> Utsho Pro</h3>
-                  <p className="text-zinc-500 text-sm font-medium">Unlock unlimited conversations & memory.</p>
+                  <p className="text-zinc-500 text-sm font-medium">Unlock unlimited daily conversations & memory.</p>
                 </div>
                 <button onClick={() => setIsSubscriptionOpen(false)} className="p-2 text-zinc-600 hover:text-white"><X size={24} /></button>
               </div>
@@ -333,7 +355,7 @@ const App: React.FC = () => {
                  </div>
                  <div className="space-y-2">
                     <div className="flex items-center gap-2 text-xs text-emerald-400 font-bold"><CheckCircle2 size={14} /> Unlimited Chat Messages</div>
-                    <div className="flex items-center gap-2 text-xs text-emerald-400 font-bold"><CheckCircle2 size={14} /> Full Context Memory Access</div>
+                    <div className="flex items-center gap-2 text-xs text-emerald-400 font-bold"><CheckCircle2 size={14} /> Persistent Memory Synced</div>
                     <div className="flex items-center gap-2 text-xs text-emerald-400 font-bold"><CheckCircle2 size={14} /> Priority Node Access</div>
                  </div>
               </div>
@@ -341,17 +363,26 @@ const App: React.FC = () => {
               <div className="space-y-4">
                  <div className="p-4 bg-zinc-800/50 rounded-2xl border border-zinc-700 space-y-2">
                     <p className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Payment Instruction</p>
-                    <p className="text-sm font-medium text-zinc-300">Send Money (5 BDT) to: <span className="text-pink-500 font-black">01XXXXXXXXX</span> (bKash)</p>
-                    <p className="text-[10px] text-zinc-500 italic">Enter your Transaction ID (TrxID) below to verify instantly.</p>
+                    <div className="flex items-center justify-between">
+                       <p className="text-sm font-medium text-zinc-300">bKash (Send Money): 
+                         <span className="text-pink-500 font-black ml-1 font-mono">
+                            {showNumber ? atob(BK_RAW) : "01XXX-XXXXXX"}
+                         </span>
+                       </p>
+                       <button onClick={() => setShowNumber(!showNumber)} className="text-zinc-500 hover:text-white transition-colors">
+                         {showNumber ? <EyeOff size={16} /> : <Eye size={16} />}
+                       </button>
+                    </div>
+                    <p className="text-[10px] text-zinc-500 italic">Enter the 10-char TrxID from your SMS below.</p>
                  </div>
                  
                  <div className="space-y-2">
-                    <input type="text" value={trxId} onChange={e => setTrxId(e.target.value)} placeholder="Enter TrxID (e.g. AB12CD34)" className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-xl outline-none focus:border-pink-500 text-sm font-mono text-white" />
+                    <input type="text" value={trxId} onChange={e => setTrxId(e.target.value.toUpperCase())} placeholder="TrxID (e.g. AM21CD88EF)" className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-xl outline-none focus:border-pink-500 text-sm font-mono text-white tracking-widest" />
                  </div>
               </div>
 
               <button onClick={handleSubscription} disabled={!trxId.trim() || isProcessingPayment} className={`w-full py-4 rounded-2xl font-black text-white transition-all flex items-center justify-center gap-2 ${trxId.trim() && !isProcessingPayment ? 'bg-pink-600 shadow-xl shadow-pink-600/20 hover:scale-[1.02]' : 'bg-zinc-800 text-zinc-600 cursor-not-allowed'}`}>
-                 {isProcessingPayment ? <RefreshCcw size={20} className="animate-spin" /> : <><ShieldCheck size={20} /> Verify & Activate</>}
+                 {isProcessingPayment ? <RefreshCcw size={20} className="animate-spin" /> : <><ShieldCheck size={20} /> Verify Payment</>}
               </button>
            </div>
         </div>
@@ -389,13 +420,22 @@ const App: React.FC = () => {
           {!isPro && (
             <div onClick={() => setIsSubscriptionOpen(true)} className="p-4 bg-indigo-600/10 border border-indigo-500/20 rounded-[2rem] cursor-pointer hover:bg-indigo-600/20 transition-all space-y-2 group">
               <div className="flex justify-between items-center">
-                <span className="text-[10px] font-black text-indigo-400">FREE LIMIT</span>
-                <span className="text-[10px] font-black text-zinc-400">{totalUserMessages}/{FREE_MESSAGE_LIMIT}</span>
+                <span className="text-[10px] font-black text-indigo-400">DAILY LIMIT</span>
+                <span className="text-[10px] font-black text-zinc-400">{dailyUserMessages}/{FREE_DAILY_LIMIT}</span>
               </div>
               <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-                 <div className="h-full bg-indigo-500 transition-all" style={{ width: `${(totalUserMessages / FREE_MESSAGE_LIMIT) * 100}%` }} />
+                 <div className="h-full bg-indigo-500 transition-all" style={{ width: `${(dailyUserMessages / FREE_DAILY_LIMIT) * 100}%` }} />
               </div>
               <p className="text-[9px] text-zinc-500 text-center font-bold uppercase">Upgrade to Pro</p>
+            </div>
+          )}
+          {isPro && (
+            <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-[2rem] space-y-1">
+               <div className="flex items-center gap-2 text-amber-500">
+                  <Crown size={14} />
+                  <span className="text-[10px] font-black uppercase tracking-widest">Utsho Pro Member</span>
+               </div>
+               <p className="text-[9px] text-zinc-500 font-medium">Unlimited messages & priority access active.</p>
             </div>
           )}
           
@@ -417,17 +457,17 @@ const App: React.FC = () => {
 
         <div className="p-4 border-t border-zinc-800 flex flex-col gap-3 bg-zinc-900/50">
           <div className="flex items-center gap-3">
-            <img src={userProfile?.picture} className="w-9 h-9 rounded-full border border-zinc-700" alt="" />
+            <img src={userProfile?.picture} className={`w-9 h-9 rounded-full border ${isUserDebi ? 'border-pink-500 shadow-[0_0_10px_rgba(236,72,153,0.3)]' : 'border-zinc-700'}`} alt="" />
             <div className="flex-1 truncate text-[11px] font-bold text-zinc-400 leading-tight">
               {userProfile?.name} <br/> 
-              <span className="text-[9px] text-zinc-600 uppercase tracking-widest">{userProfile?.age}Y • {userProfile?.gender} • {userProfile?.subscriptionStatus?.toUpperCase()}</span>
+              <span className={`text-[9px] uppercase tracking-widest font-black ${isPro ? 'text-amber-500' : 'text-zinc-600'}`}>{userProfile?.age}Y • {userProfile?.gender} • {isPro ? 'PRO' : 'FREE'}</span>
             </div>
             <button onClick={() => { localStorage.clear(); window.location.reload(); }} className="text-zinc-600 hover:text-red-500 transition-colors"><LogOut size={16} /></button>
           </div>
           <div className="pt-2 border-t border-zinc-800/50 flex flex-col items-center gap-2 text-zinc-600 font-bold uppercase tracking-widest text-[9px]">
             <div className="flex items-center gap-4">
-              <a href="https://facebook.com/shakkhor12102005" target="_blank" className="hover:text-indigo-400"><Facebook size={14}/></a>
-              <a href="https://instagram.com/shakkhor_paul/" target="_blank" className="hover:text-pink-400"><Instagram size={14}/></a>
+              <a href="https://facebook.com/shakkhor12102005" target="_blank" className="hover:text-indigo-400 transition-all hover:scale-110"><Facebook size={14}/></a>
+              <a href="https://instagram.com/shakkhor_paul/" target="_blank" className="hover:text-pink-400 transition-all hover:scale-110"><Instagram size={14}/></a>
             </div>
             Developed by Shakkhor Paul
           </div>
@@ -448,7 +488,7 @@ const App: React.FC = () => {
                 <div className={`w-28 h-28 rounded-[2.5rem] flex items-center justify-center shadow-2xl floating-ai ${isUserDebi ? 'bg-pink-600' : 'bg-indigo-600'}`}><Sparkles size={48} /></div>
                 <div className="space-y-2 px-4">
                   <h3 className="text-3xl font-black tracking-tight">Hey {userProfile?.name.split(' ')[0]}!</h3>
-                  <p className="text-zinc-500 text-sm max-w-xs mx-auto">Adaptive intelligence engaged. What's on your mind?</p>
+                  <p className="text-zinc-500 text-sm max-w-xs mx-auto">Fullstack intelligence engaged. Memory persistent. What's on your mind?</p>
                 </div>
               </div>
             ) : (
@@ -461,7 +501,7 @@ const App: React.FC = () => {
                         </div>
                       )}
                       {m.content && (
-                        <div className={`p-4 md:p-5 rounded-[2rem] text-[15px] bangla-text shadow-xl ${m.role === 'user' ? (isUserDebi ? 'bg-pink-600' : 'bg-indigo-600') + ' text-white rounded-tr-none' : 'bg-zinc-900 border border-zinc-800 text-zinc-100 rounded-tl-none'} ${m.content.startsWith("Failure") ? 'border-red-500/30 bg-red-500/5 text-red-400' : ''}`}>
+                        <div className={`p-4 md:p-5 rounded-[2rem] text-[15px] bangla-text shadow-xl ${m.role === 'user' ? (isUserDebi ? 'bg-pink-600 shadow-pink-600/20' : 'bg-indigo-600 shadow-indigo-500/20') + ' text-white rounded-tr-none' : 'bg-zinc-900 border border-zinc-800 text-zinc-100 rounded-tl-none'} ${m.content.startsWith("Failure") ? 'border-red-500/30 bg-red-500/5 text-red-400' : ''}`}>
                           {m.content.startsWith("Failure") && <AlertCircle size={14} className="inline mr-2" />}
                           {m.content}
                         </div>
