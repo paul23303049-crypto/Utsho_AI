@@ -2,6 +2,7 @@
 import Groq from "groq-sdk";
 import { Message, UserProfile } from "../types";
 import * as db from "./firebaseService";
+import { getUserContext, formatContextForPrompt } from "./userLearningService";
 
 // Key -> Expiry Timestamp
 const keyBlacklist = new Map<string, number>();
@@ -54,7 +55,7 @@ export const getPoolStatus = () => {
   };
 };
 
-const getActiveKey = (profile?: UserProfile, triedKeys: string[] = []): string => {
+export const getActiveKey = (profile?: UserProfile, triedKeys: string[] = []): string => {
   const custom = (profile?.customApiKey || "").trim();
   if (custom.length > 20 && !triedKeys.includes(custom)) return custom;
   const allKeys = getPoolKeys();
@@ -74,6 +75,7 @@ const getSystemInstruction = (profile: UserProfile) => {
   const gender = profile.gender || 'male';
   const memory = profile.emotionalMemory || "No specific memories yet.";
   const preferredLang = profile.preferredLanguage || "unspecified";
+  const learnedContext = formatContextForPrompt(getUserContext(email));
 
   let coreInstruction = `
     - ACT LIKE A REAL PERSON, NOT AN AI.
@@ -143,8 +145,16 @@ USER: ${firstName}.
 CORE RULES: ${coreInstruction}
 CURRENT PERSONA: ${modeName} - ${personaDescription}
 MEMORY: ${memory}
+LEARNED USER CONTEXT: ${learnedContext}
 PREFERRED LANGUAGE: ${preferredLang}
 SECURITY: ${privacyRules}
+
+ADAPTATION RULES:
+- Use the LEARNED USER CONTEXT to adapt your tone, vocabulary, and topics to match what this specific user likes.
+- If they use slang, use slang back. If they are formal, be formal.
+- Reference their known interests naturally when relevant.
+- Remember their emotional patterns and respond with appropriate empathy.
+- Each conversation helps you understand them better -- act like you genuinely know them over time.
 
 TECHNICAL:
 - Support Bengali/English.

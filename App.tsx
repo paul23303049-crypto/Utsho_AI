@@ -2,8 +2,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Send, Plus, MessageSquare, Trash2, Menu, Sparkles, LogOut, RefreshCcw, Settings, Globe, AlertCircle, Paperclip, X, Facebook, Instagram } from 'lucide-react';
 import { ChatSession, Message, UserProfile, Gender } from './types';
-import { streamChatResponse, checkApiHealth, getPoolStatus, adminResetPool, getLastNodeError } from './services/groqService';
-import { generateImage } from './services/imageService';
+import { streamChatResponse, checkApiHealth, getPoolStatus, adminResetPool, getLastNodeError, getActiveKey } from './services/groqService';
+import { generateImage, getRemainingImageGenerations, getImageDailyLimit } from './services/imageService';
+import { analyzeConversation } from './services/userLearningService';
 import * as db from './services/firebaseService';
 
 const App: React.FC = () => {
@@ -185,7 +186,24 @@ const App: React.FC = () => {
                           lowerInput.includes('একটি ছবি');
 
     if (isImageRequest) {
-      setApiStatusText("Generating image...");
+      // Check rate limit before attempting generation
+      const remaining = getRemainingImageGenerations(userProfile.email);
+      if (remaining <= 0) {
+        setIsLoading(false);
+        const limitMsg: Message = {
+          id: crypto.randomUUID(),
+          role: 'model',
+          content: `You've reached your daily image generation limit (${getImageDailyLimit()} images per day). Your limit will reset tomorrow. Try again then!`,
+          timestamp: new Date()
+        };
+        const updatedMessages = [...history, limitMsg];
+        setSessions(prev => prev.map(s => s.id === activeSessionId ? { ...s, messages: updatedMessages } : s));
+        if (db.isDatabaseEnabled()) db.updateSessionMessages(userProfile.email, activeSessionId, updatedMessages, newTitle).catch(console.error);
+        setApiStatusText("Daily Limit Reached");
+        return;
+      }
+
+      setApiStatusText(`Generating image... (${remaining - 1} left today)`);
       
       const imagePrompt = inputText
         .replace(/^\/(draw|image)\s*/i, '')
@@ -194,14 +212,15 @@ const App: React.FC = () => {
         .replace(/^create (an image|a picture) of/i, '')
         .replace(/^(ছবি আঁকো|ছবি তৈরি করো|একটি ছবি)\s*/i, '')
         .trim() || "A beautiful landscape";
-      const imageUrl = await generateImage(imagePrompt);
+      const imageUrl = await generateImage(imagePrompt, userProfile.email);
 
       if (imageUrl) {
         setIsLoading(false);
+        const newRemaining = getRemainingImageGenerations(userProfile.email);
         const imageMsg: Message = { 
           id: crypto.randomUUID(), 
           role: 'model', 
-          content: `Here is your generated image for: "${imagePrompt}"`, 
+          content: `Here is your generated image for: "${imagePrompt}"\n(${newRemaining}/${getImageDailyLimit()} generations remaining today)`, 
           timestamp: new Date(),
           imageUrl: imageUrl
         };
@@ -246,6 +265,12 @@ const App: React.FC = () => {
         if (db.isDatabaseEnabled()) db.updateSessionMessages(userProfile.email, activeSessionId, updatedMessages, newTitle).catch(console.error);
         setPoolInfo(getPoolStatus());
         setApiStatusText("Synced");
+
+        // Background: analyze conversation to learn about the user
+        const learningKey = getActiveKey(userProfile);
+        if (learningKey) {
+          analyzeConversation(updatedMessages, userProfile, learningKey).catch(() => {});
+        }
       },
       (err) => {
         setIsLoading(false);
