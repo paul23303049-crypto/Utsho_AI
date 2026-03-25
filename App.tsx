@@ -317,8 +317,6 @@ const App: React.FC = () => {
         setSelectedDocument(null);
       };
       reader.readAsDataURL(file);
-    } else if (fileType === 'unsupported') {
-      alert(`Unsupported file type. Supported: Images, PDF, DOCX, TXT, and code files.`);
     } else {
       // Handle documents (PDF, DOCX, TXT, etc.)
       try {
@@ -538,7 +536,7 @@ const App: React.FC = () => {
               </div>
             )}
             <div className="flex items-end gap-2 bg-zinc-900/80 border border-zinc-800 rounded-[2.5rem] p-2.5 shadow-2xl focus-within:border-indigo-500/30 transition-all">
-              <input type="file" ref={fileInputRef} className="hidden" accept="image/*,.pdf,.docx,.doc,.txt,.md,.csv,.json,.xml,.html,.css,.js,.ts,.tsx,.jsx,.py,.java,.c,.cpp,.h,.rb,.go,.rs,.sh,.yaml,.yml,.toml,.ini,.cfg,.log,.sql,.env" onChange={handleFileSelect} />
+              <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileSelect} />
               <button onClick={() => fileInputRef.current?.click()} className="p-3.5 text-zinc-500 hover:text-indigo-400 transition-colors"><Paperclip size={22} /></button>
               <textarea rows={1} value={inputText} onChange={e => { setInputText(e.target.value); e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } }} placeholder="Talk to Utsho..." className="flex-1 bg-transparent py-3.5 px-2 outline-none resize-none max-h-40 text-[15px] text-zinc-100 placeholder-zinc-600" />
               <button onClick={handleSendMessage} disabled={isLoading} className={`p-4 rounded-full transition-all active:scale-90 shadow-xl ${ (inputText.trim() || selectedImage || selectedDocument) && !isLoading ? 'bg-indigo-600 shadow-indigo-500/20' : 'bg-zinc-800 text-zinc-600'}`}>
