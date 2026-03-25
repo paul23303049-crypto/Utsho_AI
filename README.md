@@ -40,7 +40,7 @@ service cloud.firestore {
 
 ## 2. Environment Variables
 Ensure these are set in your Cloudflare dashboard:
-- `API_KEY`: Your Gemini API key pool (comma separated).
+- `API_KEY`: Your Groq API key pool (comma separated).
 - `FIREBASE_API_KEY`: Your Firebase Web SDK Key.
 - `FIREBASE_PROJECT_ID`: utsho-ai
 - `FIREBASE_AUTH_DOMAIN`: utsho-ai.firebaseapp.com

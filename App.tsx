@@ -316,7 +316,7 @@ const App: React.FC = () => {
               <h3 className="text-xl font-bold flex items-center gap-2 text-indigo-400"><Settings size={20} /> Settings</h3>
               <div className="space-y-2">
                  <label className="text-xs font-bold text-zinc-500">YOUR PERSONAL API KEY (OPTIONAL)</label>
-                 <input type="password" value={customKeyInput} onChange={e => setCustomKeyInput(e.target.value)} placeholder="Paste your Gemini key here..." className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-xl outline-none focus:border-indigo-500 text-sm" />
+                 <input type="password" value={customKeyInput} onChange={e => setCustomKeyInput(e.target.value)} placeholder="Paste your Groq key here..." className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-xl outline-none focus:border-indigo-500 text-sm" />
                  <p className="text-[10px] text-zinc-500 italic">If left blank, Utsho will use the shared community pool.</p>
               </div>
               <div className="flex gap-3">
