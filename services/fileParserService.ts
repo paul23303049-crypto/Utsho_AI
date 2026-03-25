@@ -5,7 +5,7 @@ import mammoth from 'mammoth';
 // Set up PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
 
-export type SupportedFileType = 'image' | 'pdf' | 'docx' | 'text' | 'unsupported';
+export type SupportedFileType = 'image' | 'pdf' | 'docx' | 'text' | 'binary';
 
 /**
  * Detect file type from a File object.
@@ -42,7 +42,7 @@ export const detectFileType = (file: File): SupportedFileType => {
     return 'text';
   }
 
-  return 'unsupported';
+  return 'binary';
 };
 
 /**
@@ -54,7 +54,7 @@ export const getFileTypeLabel = (fileType: SupportedFileType): string => {
     case 'pdf': return 'PDF Document';
     case 'docx': return 'Word Document';
     case 'text': return 'Text File';
-    case 'unsupported': return 'Unsupported File';
+    case 'binary': return 'Binary File';
   }
 };
 
@@ -130,8 +130,28 @@ export const parseFile = async (file: File): Promise<{
       // Images are handled separately via vision model
       text = '';
       break;
-    case 'unsupported':
-      text = `Unsupported file type: ${file.type || 'unknown'}. Supported formats: images (PNG, JPG, etc.), PDF, DOCX, and text files (TXT, MD, CSV, JSON, code files).`;
+    case 'binary':
+      // For unknown/binary files, try to read as text first
+      try {
+        const rawText = await file.text();
+        // Check if it looks like valid text (low ratio of non-printable chars)
+        const nonPrintable = rawText.slice(0, 1000).split('').filter(c => {
+          const code = c.charCodeAt(0);
+          return code < 32 && code !== 9 && code !== 10 && code !== 13;
+        }).length;
+        if (nonPrintable < 50) {
+          // Looks like text content
+          text = rawText;
+        } else {
+          // Truly binary -- provide file metadata for AI to acknowledge
+          const sizeKB = (file.size / 1024).toFixed(1);
+          const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+          text = `[Binary file uploaded]\nFile name: ${file.name}\nFile type: ${file.type || 'unknown'}\nFile size: ${parseFloat(sizeMB) > 1 ? sizeMB + ' MB' : sizeKB + ' KB'}\n\nThis is a binary file and its raw content cannot be displayed as text. Please describe what you would like to know about this file.`;
+        }
+      } catch {
+        const sizeKB = (file.size / 1024).toFixed(1);
+        text = `[File uploaded]\nFile name: ${file.name}\nFile type: ${file.type || 'unknown'}\nFile size: ${sizeKB} KB\n\nCould not read file content. Please describe what you need help with regarding this file.`;
+      }
       break;
   }
 
