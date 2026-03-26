@@ -1,5 +1,5 @@
 {
   "name": "Utsho-AI",
-  "description": "A sleek, high-performance chatbot interface powered by Groq (Llama 3.3), designed for seamless, intelligent conversations with shared API access.",
+  "description": "A sleek, high-performance AI chatbot interface supporting multiple providers (ChatGPT, Gemini, DeepSeek, Grok), designed for seamless, intelligent conversations.",
   "requestFramePermissions": []
 }

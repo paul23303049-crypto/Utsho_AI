@@ -1,6 +1,7 @@
 
 export type Role = 'user' | 'model';
 export type Gender = 'male' | 'female';
+export type ApiProvider = 'chatgpt' | 'gemini' | 'deepseek' | 'grok';
 
 export interface UserProfile {
   name: string;
@@ -10,6 +11,7 @@ export interface UserProfile {
   age: number;
   googleId?: string;
   customApiKey?: string;
+  customApiProvider?: ApiProvider;
   emotionalMemory?: string; 
   preferredLanguage?: string;
 }

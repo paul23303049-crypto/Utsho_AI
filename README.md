@@ -40,10 +40,17 @@ service cloud.firestore {
 
 ## 2. Environment Variables
 Ensure these are set in your Cloudflare dashboard:
-- `API_KEY`: Your Groq API key pool (comma separated).
+- `API_KEY`: Your AI service API key pool (comma separated).
 - `FIREBASE_API_KEY`: Your Firebase Web SDK Key.
 - `FIREBASE_PROJECT_ID`: utsho-ai
 - `FIREBASE_AUTH_DOMAIN`: utsho-ai.firebaseapp.com
 - `FIREBASE_STORAGE_BUCKET`: utsho-ai.appspot.com
 - `FIREBASE_MESSAGING_SENDER_ID`: ...
 - `FIREBASE_APP_ID`: ...
+
+## 3. Supported Custom API Providers
+Users can optionally provide their own API key in Settings for any of these providers:
+- **ChatGPT** (OpenAI)
+- **Gemini** (Google)
+- **DeepSeek**
+- **Grok** (xAI)

@@ -1,5 +1,5 @@
 {
-  "name": "gemini-shared-chat",
+  "name": "utsho-ai",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "firebase": "^11.3.1",
-    "groq-sdk": "^1.1.1",
+    "openai": "^4.77.0",
     "lucide-react": "^0.562.0",
     "mammoth": "^1.12.0",
     "pdfjs-dist": "^5.5.207",

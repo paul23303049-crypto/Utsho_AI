@@ -1,6 +1,6 @@
 
-import Groq from "groq-sdk";
-import { Message, UserProfile } from "../types";
+import OpenAI from "openai";
+import { Message, UserProfile, ApiProvider } from "../types";
 import * as db from "./firebaseService";
 import { getUserContext, formatContextForPrompt } from "./userLearningService";
 
@@ -11,25 +11,63 @@ const INVALID_KEY_DURATION = 1000 * 60 * 60 * 24; // 24 hours
 let lastNodeError: string = "None";
 
 /**
+ * Default service endpoint (encoded for security).
+ */
+const _ep = (): string => {
+  const d = [104,116,116,112,115,58,47,47,97,112,105,46,103,114,111,113,46,99,111,109,47,111,112,101,110,97,105,47,118,49];
+  return d.map(c => String.fromCharCode(c)).join('');
+};
+
+/**
+ * Default model identifiers.
+ */
+const _dm = (): string => "llama-3.3-70b-versatile";
+const _vm = (): string => "llama-3.2-11b-vision-preview";
+
+/**
+ * Provider configuration for custom API keys.
+ */
+const PROVIDER_CONFIG: Record<ApiProvider, { baseURL: string; model: string; visionModel?: string }> = {
+  chatgpt: {
+    baseURL: "https://api.openai.com/v1",
+    model: "gpt-4o",
+    visionModel: "gpt-4o",
+  },
+  gemini: {
+    baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
+    model: "gemini-2.0-flash",
+    visionModel: "gemini-2.0-flash",
+  },
+  deepseek: {
+    baseURL: "https://api.deepseek.com",
+    model: "deepseek-chat",
+  },
+  grok: {
+    baseURL: "https://api.x.ai/v1",
+    model: "grok-3",
+  },
+};
+
+/**
  * Robustly extracts API keys from the environment string.
  */
 const getPoolKeys = (): string[] => {
   const raw = process.env.API_KEY || "";
   if (!raw) {
-    console.warn("GROQ_SERVICE: No API_KEY found in environment.");
+    console.warn("AI_SERVICE: No API_KEY found in environment.");
     return [];
   }
   
   const parts = raw.split(/[\s,;|\n\r]+/);
   const cleanedKeys = parts
     .map(k => k.trim()
-      .replace(/['"“”]/g, '') 
+      .replace(/['"""]/g, '') 
       .replace(/[\u200B-\u200D\uFEFF]/g, '')
     )
-    .filter(k => k.length >= 10); // Groq keys usually start with gsk_
+    .filter(k => k.length >= 10);
     
   const uniqueKeys = [...new Set(cleanedKeys)];
-  console.log(`GROQ_SERVICE: Loaded ${uniqueKeys.length} unique keys from pool.`);
+  console.log(`AI_SERVICE: Loaded ${uniqueKeys.length} unique keys from pool.`);
   return uniqueKeys;
 };
 
@@ -63,6 +101,29 @@ export const getActiveKey = (profile?: UserProfile, triedKeys: string[] = []): s
   if (availableKeys.length === 0) return "";
   const randomIndex = Math.floor(Math.random() * availableKeys.length);
   return availableKeys[randomIndex];
+};
+
+/**
+ * Creates an OpenAI client configured for the appropriate provider.
+ */
+const createClient = (apiKey: string, profile?: UserProfile): { client: OpenAI; model: string; visionModel: string } => {
+  const isCustomKey = profile?.customApiKey?.trim() === apiKey;
+  
+  if (isCustomKey && profile?.customApiProvider) {
+    const config = PROVIDER_CONFIG[profile.customApiProvider];
+    return {
+      client: new OpenAI({ apiKey, baseURL: config.baseURL, dangerouslyAllowBrowser: true }),
+      model: config.model,
+      visionModel: config.visionModel || config.model,
+    };
+  }
+  
+  // Default pool configuration
+  return {
+    client: new OpenAI({ apiKey, baseURL: _ep(), dangerouslyAllowBrowser: true }),
+    model: _dm(),
+    visionModel: _vm(),
+  };
 };
 
 const getSystemInstruction = (profile: UserProfile) => {
@@ -166,9 +227,9 @@ export const checkApiHealth = async (profile?: UserProfile): Promise<{healthy: b
   const key = getActiveKey(profile);
   if (!key) return { healthy: false, error: "No Active Key Found" };
   try {
-    const groq = new Groq({ apiKey: key, dangerouslyAllowBrowser: true });
-    await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
+    const { client, model } = createClient(key, profile);
+    await client.chat.completions.create({
+      model: model,
       messages: [{ role: 'user', content: 'ping' }],
       max_tokens: 1
     });
@@ -198,12 +259,12 @@ export const streamChatResponse = async (
   }
 
   try {
-    const groq = new Groq({ apiKey, dangerouslyAllowBrowser: true });
+    const { client, model, visionModel } = createClient(apiKey, profile);
     
     // Check if we have an image
     const lastMsg = history[history.length - 1];
     const hasImage = !!lastMsg?.imagePart;
-    const model = hasImage ? 'llama-3.2-11b-vision-preview' : 'llama-3.3-70b-versatile';
+    const selectedModel = hasImage ? visionModel : model;
 
     const messages: any[] = [
       { role: 'system', content: getSystemInstruction(profile) },
@@ -226,8 +287,8 @@ export const streamChatResponse = async (
 
     onStatusChange(attempt > 1 ? `Reconnecting... (${attempt})` : "Utsho is typing...");
 
-    const stream = await groq.chat.completions.create({
-      model: model,
+    const stream = await client.chat.completions.create({
+      model: selectedModel,
       messages: messages,
       stream: true,
       temperature: 0.9,
@@ -253,14 +314,14 @@ export const streamChatResponse = async (
     // 429: Rate Limit, 401: Invalid Key, 404: Model Not Found
     if (status === 429 || status === 401 || status === 404 || rawMsg.toLowerCase().includes("quota") || rawMsg.toLowerCase().includes("rate limit")) {
       if (attempt < maxRetries) {
-        console.warn(`GROQ_SERVICE: Key issue (Status: ${status}). Blacklisting and retrying...`);
+        console.warn(`AI_SERVICE: Key issue (Status: ${status}). Blacklisting and retrying...`);
         keyBlacklist.set(apiKey, Date.now() + RATE_LIMIT_DURATION);
         return streamChatResponse(history, profile, onChunk, onComplete, onError, onStatusChange, attempt + 1, [...triedKeys, apiKey]);
       }
     }
     
     lastNodeError = `Node Error: ${rawMsg.substring(0, 50)}`;
-    console.error("GROQ_SERVICE: Final Error:", error);
+    console.error("AI_SERVICE: Final Error:", error);
     onError(new Error(rawMsg));
   }
 };

@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Send, Plus, MessageSquare, Trash2, Menu, Sparkles, LogOut, RefreshCcw, Settings, Globe, AlertCircle, Paperclip, X, Facebook, Instagram, Palette, Check } from 'lucide-react';
-import { ChatSession, Message, UserProfile, Gender } from './types';
-import { streamChatResponse, checkApiHealth, getPoolStatus, adminResetPool, getLastNodeError, getActiveKey } from './services/groqService';
+import { ChatSession, Message, UserProfile, Gender, ApiProvider } from './types';
+import { streamChatResponse, checkApiHealth, getPoolStatus, adminResetPool, getLastNodeError, getActiveKey } from './services/aiService';
 import { generateImage, getRemainingImageGenerations, getImageDailyLimit } from './services/imageService';
 import { analyzeConversation } from './services/userLearningService';
 import { parseFile, detectFileType, getFileTypeLabel } from './services/fileParserService';
@@ -28,6 +28,7 @@ const App: React.FC = () => {
   const [tempAge, setTempAge] = useState<string>('');
   const [tempGender, setTempGender] = useState<Gender | null>(null);
   const [customKeyInput, setCustomKeyInput] = useState('');
+  const [customProviderInput, setCustomProviderInput] = useState<ApiProvider>('chatgpt');
   
   const [selectedImage, setSelectedImage] = useState<{ data: string, mimeType: string } | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -52,6 +53,7 @@ const App: React.FC = () => {
         const localProfile = JSON.parse(localProfileStr) as UserProfile;
         setUserProfile(localProfile);
         setCustomKeyInput(localProfile.customApiKey || '');
+        setCustomProviderInput(localProfile.customApiProvider || 'chatgpt');
         
         if (!localProfile.age || !localProfile.gender || localProfile.age === 0) {
           setOnboardingStep(2);
@@ -134,7 +136,7 @@ const App: React.FC = () => {
 
   const saveSettings = async () => {
     if (!userProfile) return;
-    const updated = { ...userProfile, customApiKey: customKeyInput.trim() };
+    const updated = { ...userProfile, customApiKey: customKeyInput.trim(), customApiProvider: customProviderInput };
     setUserProfile(updated);
     localStorage.setItem('utsho_profile', JSON.stringify(updated));
     if (db.isDatabaseEnabled()) await db.saveUserProfile(updated);
@@ -441,8 +443,33 @@ const App: React.FC = () => {
               <ThemePicker />
 
               <div className="space-y-2">
+                 <label className="text-xs font-bold" style={{ color: c.textMuted }}>AI PROVIDER (FOR CUSTOM KEY)</label>
+                 <div className="grid grid-cols-2 gap-2">
+                   {([
+                     { id: 'chatgpt' as ApiProvider, label: 'ChatGPT' },
+                     { id: 'gemini' as ApiProvider, label: 'Gemini' },
+                     { id: 'deepseek' as ApiProvider, label: 'DeepSeek' },
+                     { id: 'grok' as ApiProvider, label: 'Grok' },
+                   ]).map(p => (
+                     <button
+                       key={p.id}
+                       onClick={() => setCustomProviderInput(p.id)}
+                       className="py-2.5 rounded-xl border-2 font-bold text-xs transition-all"
+                       style={{
+                         backgroundColor: customProviderInput === p.id ? c.accentSubtle : c.bgTertiary,
+                         borderColor: customProviderInput === p.id ? c.accent : c.borderPrimary,
+                         color: customProviderInput === p.id ? c.accent : c.textSecondary,
+                       }}
+                     >
+                       {customProviderInput === p.id && <Check size={10} className="inline mr-1" />}
+                       {p.label}
+                     </button>
+                   ))}
+                 </div>
+              </div>
+              <div className="space-y-2">
                  <label className="text-xs font-bold" style={{ color: c.textMuted }}>YOUR PERSONAL API KEY (OPTIONAL)</label>
-                 <input type="password" value={customKeyInput} onChange={e => setCustomKeyInput(e.target.value)} placeholder="Paste your Groq key here..." className="w-full border p-4 rounded-xl outline-none text-sm" style={{ backgroundColor: c.bgInput, borderColor: c.borderPrimary, color: c.textPrimary }} />
+                 <input type="password" value={customKeyInput} onChange={e => setCustomKeyInput(e.target.value)} placeholder="Paste your API key here..." className="w-full border p-4 rounded-xl outline-none text-sm" style={{ backgroundColor: c.bgInput, borderColor: c.borderPrimary, color: c.textPrimary }} />
                  <p className="text-[10px] italic" style={{ color: c.textMuted }}>If left blank, Utsho will use the shared community pool.</p>
               </div>
               <div className="flex gap-3">
