@@ -364,7 +364,18 @@ export const streamChatResponse = async (
     const hasImage = !!lastMsg?.imagePart;
     const selectedModel = hasImage ? visionModel : model;
 
-    const systemPrompt = await getSystemInstruction(profile);
+    let systemPrompt = await getSystemInstruction(profile);
+    
+    // Add vision-specific instructions when processing images
+    if (hasImage) {
+      systemPrompt += `\n\nIMAGE ANALYSIS INSTRUCTIONS:
+- You CAN and SHOULD describe images thoroughly, including scenes with people.
+- Describe what people are doing, their expressions, clothing, poses, and the overall scene.
+- Do NOT identify specific real individuals by name. Instead describe their appearance.
+- Be detailed and helpful. If the user asks about people in the image, describe them fully.
+- Never refuse to analyze an image. Always provide a useful, detailed description.`;
+    }
+    
     const messages: any[] = [
       { role: 'system', content: systemPrompt },
       ...history.slice(-15).map(msg => {
@@ -419,8 +430,27 @@ export const streamChatResponse = async (
       }
     }
     
-    lastNodeError = `Node Error: ${rawMsg.substring(0, 50)}`;
+    lastNodeError = `Node Error (${status || 'unknown'}): ${rawMsg.replace(/`[^`]*`/g, '[model]').replace(/https?:\/\/[^\s]+/g, '[endpoint]').substring(0, 50)}`;
     console.error("AI_SERVICE: Final Error:", error);
-    onError(new Error(rawMsg));
+    
+    // Sanitize error message: remove model names, endpoints, and technical details
+    let userMsg = rawMsg;
+    // Remove model identifiers (e.g., "The model `xxx` does not exist")
+    userMsg = userMsg.replace(/`[^`]*`/g, '`[model]`');
+    userMsg = userMsg.replace(/model\s+['"]?[\w\-\.\/]+['"]?/gi, 'model');
+    // Remove URLs and endpoints
+    userMsg = userMsg.replace(/https?:\/\/[^\s]+/g, '[endpoint]');
+    // Provide user-friendly messages for common errors
+    if (status === 404) {
+      userMsg = "Service temporarily unavailable. Please try again in a moment.";
+    } else if (status === 429) {
+      userMsg = "Too many requests. Please wait a moment and try again.";
+    } else if (status === 401) {
+      userMsg = "Authentication error. Please check your API key in Settings.";
+    } else if (rawMsg.toLowerCase().includes("pool exhausted")) {
+      userMsg = "All nodes are busy. Please wait a few minutes and try again.";
+    }
+    
+    onError(new Error(userMsg));
   }
 };
