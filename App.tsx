@@ -4,7 +4,7 @@ import { Send, Plus, MessageSquare, Trash2, Menu, Sparkles, LogOut, RefreshCcw, 
 import { ChatSession, Message, UserProfile, Gender, ApiProvider } from './types';
 import { streamChatResponse, checkApiHealth, getPoolStatus, adminResetPool, getLastNodeError, getActiveKey } from './services/aiService';
 import { generateImage, getRemainingImageGenerations, getImageDailyLimit } from './services/imageService';
-import { analyzeConversation } from './services/userLearningService';
+import { analyzeConversation, selfAssessResponse, deepReflection } from './services/userLearningService';
 import { parseFile, detectFileType, getFileTypeLabel } from './services/fileParserService';
 import * as db from './services/firebaseService';
 import { useTheme } from './ThemeContext';
@@ -287,10 +287,15 @@ const App: React.FC = () => {
         setPoolInfo(getPoolStatus());
         setApiStatusText("Synced");
 
-        // Background: analyze conversation to learn about the user
+        // Background: self-training pipeline
         const learningKey = getActiveKey(userProfile);
         if (learningKey) {
+          // 1. Analyze conversation to learn about the user
           analyzeConversation(updatedMessages, userProfile, learningKey).catch(() => {});
+          // 2. Self-assess response quality and generate improvement notes
+          selfAssessResponse(updatedMessages, userProfile, learningKey).catch(() => {});
+          // 3. Periodic deep reflection to synthesize all learnings
+          deepReflection(userProfile, learningKey).catch(() => {});
         }
       },
       (err) => {
