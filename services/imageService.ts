@@ -59,8 +59,9 @@ export const getImageDailyLimit = (): number => DAILY_IMAGE_LIMIT;
 
 const STABLE_HORDE_API = 'https://stablehorde.net/api/v2';
 const STABLE_HORDE_ANON_KEY = '0000000000'; // Anonymous access key
-const MAX_POLL_ATTEMPTS = 60; // Max ~2 minutes of polling
+const MAX_POLL_ATTEMPTS = 90; // Max ~3 minutes of polling (higher quality needs more time)
 const POLL_INTERVAL_MS = 2000; // Poll every 2 seconds
+const IMAGE_MODELS = ['Deliberate', 'SDXL 1.0', 'stable_diffusion']; // Fallback chain
 
 /**
  * Generates an image using Stable Horde (completely free, crowdsourced GPU network).
@@ -89,14 +90,16 @@ export const generateImage = async (prompt: string, email?: string): Promise<str
       body: JSON.stringify({
         prompt: prompt,
         params: {
-          width: 512,
-          height: 512,
-          steps: 25,
-          cfg_scale: 7,
+          width: 768,
+          height: 768,
+          steps: 35,
+          cfg_scale: 7.5,
+          sampler_name: 'k_euler_a',
+          post_processing: ['GFPGAN'],
         },
         nsfw: false,
         censor_nsfw: true,
-        models: ['stable_diffusion'],
+        models: IMAGE_MODELS,
         r2: true,
       }),
     });
