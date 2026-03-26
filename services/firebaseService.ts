@@ -511,19 +511,8 @@ export const getUserConversations = async (email: string): Promise<{
 };
 
 /**
- * Get all conversations in the system (for admin).
+ * Get messages in a conversation.
  */
-export const getAllConversations = async (): Promise<any[]> => {
-  if (!db) return [];
-  try {
-    const ref = collection(db, 'conversations');
-    const snap = await getDocs(ref);
-    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
-  } catch (e) {
-    console.error("FIREBASE: getAllConversations error:", e);
-    return [];
-  }
-};
 export const getConversationMessages = async (fromEmail: string, toEmail: string): Promise<{
   id: string;
   from: string;
