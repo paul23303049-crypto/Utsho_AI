@@ -489,12 +489,13 @@ const App: React.FC = () => {
         <div className="p-4 flex flex-col gap-4">
           <button onClick={() => createNewSession()} className="py-3.5 rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg transition-all active:scale-95" style={{ backgroundColor: c.buttonPrimary, color: c.buttonPrimaryText }}><Plus size={18} /> New Chat</button>
           
+          {isAdmin ? (
           <div className="border rounded-[2rem] shadow-2xl space-y-4 p-4" style={{ backgroundColor: c.bgSecondary, borderColor: c.borderPrimary }}>
              <div className="flex items-center justify-between border-b pb-2" style={{ borderColor: c.borderPrimary }}>
                 <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest" style={{ color: c.textMuted }}>
-                   {isAdmin ? 'POOL HEALTH' : 'SYSTEM POOL'}
+                   POOL HEALTH
                 </div>
-                {isAdmin && <button onClick={handleResetPool} className="transition-colors" style={{ color: c.textMuted }}><RefreshCcw size={12} /></button>}
+                <button onClick={handleResetPool} className="transition-colors" style={{ color: c.textMuted }}><RefreshCcw size={12} /></button>
              </div>
              
              <div className="space-y-3">
@@ -513,6 +514,13 @@ const App: React.FC = () => {
                 </div>
              </div>
           </div>
+          ) : (
+          <div className="border rounded-2xl p-3 flex items-center justify-center" style={{ backgroundColor: c.bgSecondary, borderColor: c.borderPrimary }}>
+             <div className="text-[9px] font-black text-center py-1 rounded-lg truncate" style={{ color: connectionHealth === 'error' ? '#f87171' : c.statusBarText, backgroundColor: connectionHealth === 'error' ? 'rgba(248,113,113,0.05)' : c.statusBar, padding: '4px 12px' }}>
+               {connectionHealth === 'error' ? 'RECONNECTING...' : 'ONLINE'} {isLoading && "..."}
+             </div>
+          </div>
+          )}
 
           <div className="flex items-center justify-between px-3 py-2 rounded-xl border" style={{ backgroundColor: c.bgHover, borderColor: c.borderPrimary }}>
             <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: c.textMuted }}>Settings</span>
