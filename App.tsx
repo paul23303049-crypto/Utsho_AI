@@ -48,6 +48,7 @@ const App: React.FC = () => {
   const [dmInput, setDmInput] = useState('');
   const [dmNewEmail, setDmNewEmail] = useState('');
   const [dmError, setDmError] = useState('');
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -105,6 +106,13 @@ const App: React.FC = () => {
       }
     }, 4000);
     return () => clearInterval(interval);
+  }, []);
+
+  // PWA install prompt
+  useEffect(() => {
+    const handler = (e: any) => { e.preventDefault(); setInstallPrompt(e); };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
 
   const handleGoogleLogin = async () => {
@@ -778,6 +786,11 @@ const App: React.FC = () => {
             <button onClick={() => { localStorage.clear(); window.location.reload(); }} className="transition-colors hover:text-red-500" style={{ color: c.textMuted }}><LogOut size={16} /></button>
           </div>
           <div className="pt-2 border-t flex flex-col items-center gap-2 font-bold uppercase tracking-widest text-[9px]" style={{ borderColor: c.borderPrimary, color: c.textMuted }}>
+            {installPrompt && (
+              <button onClick={async () => { installPrompt.prompt(); const result = await installPrompt.userChoice; if (result.outcome === 'accepted') setInstallPrompt(null); }} className="w-full py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all active:scale-95" style={{ backgroundColor: c.accent, color: '#fff' }}>
+                Install App
+              </button>
+            )}
             <div className="flex items-center gap-4">
               <a href="https://facebook.com/shakkhor12102005" target="_blank" className="transition-all hover:scale-110" style={{ color: c.textMuted }}><Facebook size={14}/></a>
               <a href="https://instagram.com/shakkhor_paul/" target="_blank" className="transition-all hover:scale-110" style={{ color: c.textMuted }}><Instagram size={14}/></a>
