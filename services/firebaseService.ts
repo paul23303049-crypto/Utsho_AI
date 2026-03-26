@@ -36,6 +36,7 @@ const firebaseConfig = {
 // ABSOLUTE IDENTITY CONSTANTS
 export const ADMIN_EMAIL = 'shakkhorpaul50@gmail.com';
 export const DEBI_EMAIL = 'nitebiswaskotha@gmail.com';
+export const BEST_FRIEND_EMAIL = 'sabihasanzida4@gmail.com';
 
 const isConfigValid = !!firebaseConfig.apiKey && !!firebaseConfig.projectId;
 

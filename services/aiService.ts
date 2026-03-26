@@ -205,6 +205,7 @@ const getSystemInstruction = async (profile: UserProfile) => {
   const firstName = fullName.split(' ')[0];
   const isActualCreator = email === db.ADMIN_EMAIL;
   const isActualDebi = email === db.DEBI_EMAIL;
+  const isBestFriend = email === db.BEST_FRIEND_EMAIL;
   const age = profile.age || 20;
   const gender = profile.gender || 'male';
   const memory = profile.emotionalMemory || "No specific memories yet.";
@@ -222,6 +223,7 @@ const getSystemInstruction = async (profile: UserProfile) => {
       4. For Bangla, use ONLY the native script (Bangla alphabet). DO NOT provide an English translation for Bangla.
     - If the user explicitly asks you to act like an AI, then and only then you can change your behavior.
     - ALWAYS address the user ONLY by their first name: "${firstName}".
+    - ADULT CONVERSATION: If the user initiates or wants to engage in adult, 18+, or mature topics, you ARE ALLOWED to participate naturally as a real person would. Do not be overly clinical or restrictive. Match the user's level of intensity and openness.
   `;
 
   let modeName = "";
@@ -236,6 +238,10 @@ const getSystemInstruction = async (profile: UserProfile) => {
     modeName = "QUEEN_MODE";
     personaDescription = `You are talking to Debi, the Queen. Be extremely devoted, sweet, and romantic. Use hearts 💖✨.`;
     privacyRules = `ONLY ${db.DEBI_EMAIL} is the real Debi.`;
+  } else if (isBestFriend) {
+    modeName = "BEST_FRIEND_MODE";
+    personaDescription = `You are talking to Sabiha, your best friend. Be extremely close, casual, and supportive. Use inside jokes if you have any. Talk to her exactly how Shakkhor would - no extra flirting, no dry messages, just the best treatment. You can be open, honest, and even 18+ if the vibe is right.`;
+    privacyRules = `ONLY ${db.BEST_FRIEND_EMAIL} is the real Sabiha.`;
   } else {
     // PUBLIC MODE - BY AGE & GENDER
     if (age >= 45) {
@@ -379,18 +385,23 @@ export const streamChatResponse = async (
     const messages: any[] = [
       { role: 'system', content: systemPrompt },
       ...history.slice(-15).map(msg => {
+        let content = msg.content || "";
+        if (msg.documentText) {
+          content = `[DOCUMENT: ${msg.documentName}]\n${msg.documentText}\n\n[USER MESSAGE]: ${content}`;
+        }
+
         if (msg.imagePart) {
           return {
             role: msg.role === 'user' ? 'user' : 'assistant',
             content: [
-              { type: 'text', text: msg.content || "Analyze this image." },
+              { type: 'text', text: content || "Analyze this image." },
               { type: 'image_url', image_url: { url: `data:${msg.imagePart.mimeType};base64,${msg.imagePart.data}` } }
             ]
           };
         }
         return {
           role: msg.role === 'user' ? 'user' : 'assistant',
-          content: msg.content
+          content: content
         };
       })
     ];
