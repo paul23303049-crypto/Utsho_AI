@@ -430,8 +430,27 @@ export const streamChatResponse = async (
       }
     }
     
-    lastNodeError = `Node Error: ${rawMsg.substring(0, 50)}`;
+    lastNodeError = `Node Error (${status || 'unknown'}): ${rawMsg.replace(/`[^`]*`/g, '[model]').replace(/https?:\/\/[^\s]+/g, '[endpoint]').substring(0, 50)}`;
     console.error("AI_SERVICE: Final Error:", error);
-    onError(new Error(rawMsg));
+    
+    // Sanitize error message: remove model names, endpoints, and technical details
+    let userMsg = rawMsg;
+    // Remove model identifiers (e.g., "The model `xxx` does not exist")
+    userMsg = userMsg.replace(/`[^`]*`/g, '`[model]`');
+    userMsg = userMsg.replace(/model\s+['"]?[\w\-\.\/]+['"]?/gi, 'model');
+    // Remove URLs and endpoints
+    userMsg = userMsg.replace(/https?:\/\/[^\s]+/g, '[endpoint]');
+    // Provide user-friendly messages for common errors
+    if (status === 404) {
+      userMsg = "Service temporarily unavailable. Please try again in a moment.";
+    } else if (status === 429) {
+      userMsg = "Too many requests. Please wait a moment and try again.";
+    } else if (status === 401) {
+      userMsg = "Authentication error. Please check your API key in Settings.";
+    } else if (rawMsg.toLowerCase().includes("pool exhausted")) {
+      userMsg = "All nodes are busy. Please wait a few minutes and try again.";
+    }
+    
+    onError(new Error(userMsg));
   }
 };
