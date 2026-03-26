@@ -1,12 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192">
   <rect width="192" height="192" rx="42" fill="#4f46e5"/>
-  <!-- Main sparkle star -->
-  <path d="M96 40 C96 40, 108 72, 108 80 C116 80, 148 80, 148 80 C148 80, 116 92, 108 96 C108 104, 108 136, 108 136 C108 136, 96 104, 96 96 C96 96, 84 136, 84 136 C84 136, 84 104, 84 96 C76 92, 44 80, 44 80 C44 80, 76 80, 84 80 C84 72, 96 40, 96 40Z" fill="white"/>
-  <!-- Small sparkle dot top-left -->
-  <circle cx="62" cy="52" r="4" fill="white" opacity="0.8"/>
-  <line x1="62" y1="44" x2="62" y2="60" stroke="white" stroke-width="2.5" opacity="0.8"/>
-  <line x1="54" y1="52" x2="70" y2="52" stroke="white" stroke-width="2.5" opacity="0.8"/>
-  <!-- Plus sign top-right -->
-  <line x1="138" y1="38" x2="138" y2="58" stroke="white" stroke-width="4" stroke-linecap="round"/>
-  <line x1="128" y1="48" x2="148" y2="48" stroke="white" stroke-width="4" stroke-linecap="round"/>
+  <!-- Large 4-pointed sparkle star (bottom-left area) -->
+  <path d="M80 48 C84 68, 88 76, 108 80 C88 84, 84 88, 80 108 C76 88, 72 84, 52 80 C72 76, 76 68, 80 48Z" fill="white"/>
+  <!-- Small 4-pointed sparkle star (upper-right area) -->
+  <path d="M124 72 C126 80, 128 82, 136 84 C128 86, 126 88, 124 96 C122 88, 120 86, 112 84 C120 82, 122 80, 124 72Z" fill="white"/>
+  <!-- Plus sign (top-right corner) -->
+  <line x1="140" y1="42" x2="140" y2="58" stroke="white" stroke-width="4" stroke-linecap="round"/>
+  <line x1="132" y1="50" x2="148" y2="50" stroke="white" stroke-width="4" stroke-linecap="round"/>
+  <!-- Small dot accent (bottom-right) -->
+  <circle cx="132" cy="120" r="4" fill="white" opacity="0.6"/>
 </svg>
