@@ -16,13 +16,13 @@ export interface UserProfile {
   preferredLanguage?: string;
 }
 
-export type CanvasType = 'code' | 'math';
+export type CanvasType = 'code' | 'math' | 'explain';
 
 export interface CanvasBlock {
   type: CanvasType;
   content: string;
   language?: string; // e.g. 'python', 'javascript', etc.
-  title?: string;    // e.g. 'S-code: Python' or 'S-math: Solution'
+  title?: string;    // e.g. 'S-code: Python', 'S-math: Solution', or 'S-explain: Analysis'
 }
 
 export interface Message {

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Plus, MessageSquare, Trash2, Menu, Sparkles, LogOut, RefreshCcw, Settings, Globe, AlertCircle, Paperclip, X, Facebook, Instagram, Palette, Check, Code, Calculator, Copy, ChevronRight, Maximize2, Minimize2 } from 'lucide-react';
+import { Send, Plus, MessageSquare, Trash2, Menu, Sparkles, LogOut, RefreshCcw, Settings, Globe, AlertCircle, Paperclip, X, Facebook, Instagram, Palette, Check, Code, Calculator, Copy, ChevronRight, Maximize2, Minimize2, FileText } from 'lucide-react';
 import { ChatSession, Message, UserProfile, Gender, ApiProvider, CanvasBlock, CanvasType } from './types';
 import { streamChatResponse, checkApiHealth, getPoolStatus, adminResetPool, getLastNodeError, getActiveKey } from './services/aiService';
 import { generateImage, getRemainingImageGenerations, getImageDailyLimit } from './services/imageService';
@@ -85,6 +85,12 @@ const App: React.FC = () => {
           type: 'math',
           content,
           title: 'S-math: Solution',
+        });
+      } else if (lang === 'explain') {
+        blocks.push({
+          type: 'explain',
+          content,
+          title: 'S-explain: Analysis',
         });
       } else {
         const langLabel = lang || 'code';
@@ -347,16 +353,23 @@ const App: React.FC = () => {
 
     // Check for image generation request
     const lowerInput = inputText.toLowerCase();
+    // Words that indicate this is NOT an image request (code/text generation)
+    const notImageWords = /\b(code|function|program|script|algorithm|class|variable|array|loop|api|html|css|bug|error|fix|debug|compile|syntax|database|sql|json|server|endpoint)\b/;
+    const isNotImage = notImageWords.test(lowerInput);
+    // Simple triggers: /command, "generate X", "draw X", "create X", etc.
     const imageCommandPattern = /^\/(draw|image|imagine|paint|generate)\b/;
-    const imageNaturalPattern = /\b(generate|create|draw|paint|make|produce|render|design|imagine|sketch)\b.{0,20}\b(image|picture|photo|illustration|art|artwork|painting|drawing|pic|portrait|wallpaper|poster|scene|landscape|graphic)\b/;
-    const imageReversePattern = /\b(image|picture|photo|illustration|painting|drawing|pic|portrait|wallpaper|poster)\b.{0,20}\b(generate|create|draw|paint|make|produce|render|of|for)\b/;
-    const imageDirectPattern = /^\s*(generate|create|draw|paint|make|imagine|render|sketch)\s+(a |an |the |me )?\s*(beautiful|stunning|cool|amazing|nice|epic|realistic|detailed|fantasy|abstract|cute|dark|bright|colorful)?\s*.{2,}/;
-    const imageBanglaPattern = /ছবি আঁকো|ছবি তৈরি করো|একটি ছবি|ছবি বানাও|ছবি দাও|ছবি জেনারেট/;
-    const isImageRequest = imageCommandPattern.test(lowerInput) ||
-                          imageNaturalPattern.test(lowerInput) ||
-                          imageReversePattern.test(lowerInput) ||
-                          imageDirectPattern.test(lowerInput) ||
-                          imageBanglaPattern.test(lowerInput);
+    // Any message starting with a creative verb (most intuitive)
+    const imageStartPattern = /^\s*(generate|create|draw|paint|make|imagine|render|sketch|design)\s+(a |an |the |me |my )?\s*\w/i;
+    // Messages mentioning image/picture/photo with any context
+    const imageWordPattern = /\b(image|picture|photo|illustration|drawing|painting|wallpaper|portrait|artwork|pic)\b/;
+    // Bangla triggers
+    const imageBanglaPattern = /ছবি|আঁকো|তৈরি করো|বানাও|জেনারেট/;
+    const isImageRequest = !isNotImage && (
+      imageCommandPattern.test(lowerInput) ||
+      imageStartPattern.test(lowerInput) ||
+      imageWordPattern.test(lowerInput) ||
+      imageBanglaPattern.test(lowerInput)
+    );
 
     if (isImageRequest) {
       // Check rate limit before attempting generation
@@ -379,10 +392,16 @@ const App: React.FC = () => {
       setApiStatusText(`Generating image... (${remaining - 1} left today)`);
       
       const imagePrompt = inputText
+        // Strip slash commands
         .replace(/^\/(draw|image|imagine|paint|generate)\s*/i, '')
-        .replace(/^(generate|create|draw|paint|make|produce|render|design|imagine|sketch)\s+(a |an |the |me )?\s*(image|picture|photo|illustration|art|artwork|painting|drawing|pic|portrait|wallpaper|poster|scene|landscape|graphic)\s*(of|for|with|showing|depicting)?\s*/i, '')
-        .replace(/^(generate|create|draw|paint|make|imagine|render|sketch)\s+(a |an |the |me )?\s*/i, '')
-        .replace(/^(ছবি আঁকো|ছবি তৈরি করো|একটি ছবি|ছবি বানাও|ছবি দাও|ছবি জেনারেট)\s*/i, '')
+        // Strip "generate/create/draw a image/picture of" patterns
+        .replace(/^(generate|create|draw|paint|make|produce|render|design|imagine|sketch)\s+(a |an |the |me |my )?\s*(image|picture|photo|illustration|art|artwork|painting|drawing|pic|portrait|wallpaper|poster|scene|landscape|graphic)\s*(of|for|with|showing|depicting)?\s*/i, '')
+        // Strip standalone verb starts like "Generate the beautiful Moon" -> "the beautiful Moon"
+        .replace(/^(generate|create|draw|paint|make|imagine|render|sketch|design)\s+(a |an |the |me |my )?\s*/i, '')
+        // Strip image/picture word when it appears as subject: "a picture of sunset" -> "sunset"
+        .replace(/^(a |an |the )?(image|picture|photo|illustration|drawing|painting|pic|portrait|artwork)\s*(of|for|with|showing|depicting)?\s*/i, '')
+        // Strip Bangla triggers
+        .replace(/(ছবি আঁকো|ছবি তৈরি করো|একটি ছবি|ছবি বানাও|ছবি দাও|ছবি জেনারেট|ছবি)\s*/gi, '')
         .trim() || "A beautiful landscape";
       const imageUrl = await generateImage(imagePrompt, userProfile.email);
 
@@ -950,10 +969,12 @@ const App: React.FC = () => {
             <div className="flex items-center gap-2">
               {canvasBlocks[canvasActiveIndex]?.type === 'code' 
                 ? <Code size={18} style={{ color: c.accent }} />
-                : <Calculator size={18} style={{ color: '#f59e0b' }} />
+                : canvasBlocks[canvasActiveIndex]?.type === 'math'
+                ? <Calculator size={18} style={{ color: '#f59e0b' }} />
+                : <FileText size={18} style={{ color: '#06b6d4' }} />
               }
               <span className="text-sm font-black uppercase tracking-wider" style={{ 
-                color: canvasBlocks[canvasActiveIndex]?.type === 'code' ? c.accent : '#f59e0b' 
+                color: canvasBlocks[canvasActiveIndex]?.type === 'code' ? c.accent : canvasBlocks[canvasActiveIndex]?.type === 'math' ? '#f59e0b' : '#06b6d4'
               }}>
                 {canvasBlocks[canvasActiveIndex]?.title || 'Canvas'}
               </span>
@@ -1005,7 +1026,51 @@ const App: React.FC = () => {
           <div className="flex-1 overflow-auto p-0">
             {canvasBlocks[canvasActiveIndex] && (
               <div className="h-full">
-                {canvasBlocks[canvasActiveIndex].type === 'code' ? (
+                {canvasBlocks[canvasActiveIndex].type === 'explain' ? (
+                  /* S-explain: Detailed analysis display */
+                  <div className="p-6 space-y-2 overflow-auto" style={{ maxHeight: '100%' }}>
+                    {canvasBlocks[canvasActiveIndex].content.split('\n').map((line, i) => {
+                      const trimmed = line.trim();
+                      // Detect markdown-style headers
+                      const isH2 = trimmed.startsWith('## ');
+                      const isH3 = trimmed.startsWith('### ');
+                      const isBullet = trimmed.startsWith('- ') || trimmed.startsWith('* ') || /^\d+[\.\)]\s/.test(trimmed);
+                      const isBold = /^\*\*[^*]+\*\*/.test(trimmed);
+                      const isSeparator = /^[-=_]{3,}$/.test(trimmed);
+                      
+                      if (isSeparator) {
+                        return <hr key={i} className="my-4" style={{ borderColor: c.borderPrimary }} />;
+                      }
+                      if (!trimmed) {
+                        return <div key={i} className="h-3" />;
+                      }
+                      
+                      const displayText = trimmed
+                        .replace(/^#{2,3}\s+/, '')
+                        .replace(/^\*\*(.+)\*\*$/, '$1');
+                      
+                      return (
+                        <div 
+                          key={i} 
+                          className={`leading-relaxed ${
+                            isH2 ? 'text-lg font-black mt-6 mb-2 pb-2 border-b' :
+                            isH3 ? 'text-base font-bold mt-4 mb-1' :
+                            isBold ? 'font-bold mt-3' :
+                            isBullet ? 'pl-4 text-sm' :
+                            'text-sm'
+                          }`}
+                          style={{ 
+                            color: isH2 ? '#06b6d4' : isH3 ? c.accent : c.textPrimary,
+                            borderColor: isH2 ? `${c.borderPrimary}` : undefined,
+                          }}
+                        >
+                          {isBullet && <span style={{ color: '#06b6d4' }} className="mr-2">{trimmed.match(/^[-*]|\d+[\.\)]/)?.[0]}</span>}
+                          {isBullet ? trimmed.replace(/^[-*]\s+|\d+[\.\)]\s+/, '') : displayText}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : canvasBlocks[canvasActiveIndex].type === 'code' ? (
                   /* S-code: Code display with line numbers */
                   <div className="flex h-full" style={{ fontFamily: "'Fira Code', 'Cascadia Code', 'JetBrains Mono', 'Consolas', monospace" }}>
                     {/* Line numbers */}
@@ -1071,11 +1136,13 @@ const App: React.FC = () => {
             <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: c.textMuted }}>
               {canvasBlocks[canvasActiveIndex]?.type === 'code' 
                 ? `${langDisplayName(canvasBlocks[canvasActiveIndex]?.language)} | ${canvasBlocks[canvasActiveIndex]?.content.split('\n').length} lines`
-                : `${canvasBlocks[canvasActiveIndex]?.content.split('\n').length} steps`
+                : canvasBlocks[canvasActiveIndex]?.type === 'math'
+                ? `${canvasBlocks[canvasActiveIndex]?.content.split('\n').length} steps`
+                : `${canvasBlocks[canvasActiveIndex]?.content.split('\n').length} lines | Detailed Analysis`
               }
             </span>
             <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: c.textMuted }}>
-              {canvasBlocks[canvasActiveIndex]?.type === 'code' ? 'S-CODE' : 'S-MATH'}
+              {canvasBlocks[canvasActiveIndex]?.type === 'code' ? 'S-CODE' : canvasBlocks[canvasActiveIndex]?.type === 'math' ? 'S-MATH' : 'S-EXPLAIN'}
             </span>
           </div>
         </div>
@@ -1137,14 +1204,16 @@ const App: React.FC = () => {
                               onClick={() => openCanvas(m.canvasBlocks!)}
                               className="flex items-center gap-2 border py-2 px-4 rounded-2xl text-xs font-bold transition-all shadow-sm hover:scale-105 active:scale-95"
                               style={{ 
-                                backgroundColor: block.type === 'code' ? c.accentSubtle : 'rgba(245,158,11,0.08)',
-                                borderColor: block.type === 'code' ? c.accent : '#f59e0b',
-                                color: block.type === 'code' ? c.accent : '#f59e0b',
+                                backgroundColor: block.type === 'code' ? c.accentSubtle : block.type === 'math' ? 'rgba(245,158,11,0.08)' : 'rgba(6,182,212,0.08)',
+                                borderColor: block.type === 'code' ? c.accent : block.type === 'math' ? '#f59e0b' : '#06b6d4',
+                                color: block.type === 'code' ? c.accent : block.type === 'math' ? '#f59e0b' : '#06b6d4',
                               }}
                             >
                               {block.type === 'code' 
                                 ? <><Code size={14} /> Open in S-code{block.language ? ` (${langDisplayName(block.language)})` : ''}<ChevronRight size={12} /></>
-                                : <><Calculator size={14} /> Open in S-math<ChevronRight size={12} /></>
+                                : block.type === 'math'
+                                ? <><Calculator size={14} /> Open in S-math<ChevronRight size={12} /></>
+                                : <><FileText size={14} /> Open in S-explain<ChevronRight size={12} /></>
                               }
                             </button>
                           ))}
