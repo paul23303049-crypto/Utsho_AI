@@ -4,8 +4,9 @@ import { Send, Plus, MessageSquare, Trash2, Menu, Sparkles, LogOut, RefreshCcw, 
 import { ChatSession, Message, UserProfile, Gender, ApiProvider } from './types';
 import { streamChatResponse, checkApiHealth, getPoolStatus, adminResetPool, getLastNodeError, getActiveKey } from './services/aiService';
 import { generateImage, getRemainingImageGenerations, getImageDailyLimit } from './services/imageService';
-import { analyzeConversation, selfAssessResponse, deepReflection } from './services/userLearningService';
+import { analyzeConversation, selfAssessResponse, deepReflection, loadUserContextFromFirebase, extractAndSaveKnowledge } from './services/userLearningService';
 import { parseFile, detectFileType, getFileTypeLabel } from './services/fileParserService';
+import { processAdminCommand } from './services/adminCommandService';
 import * as db from './services/firebaseService';
 import { useTheme } from './ThemeContext';
 import { themes, themeNames, ThemeName } from './themes';
@@ -76,6 +77,8 @@ const App: React.FC = () => {
             console.error("Cloud boot error:", e);
           }
         }
+        // Load learned user context from Firebase (merges with localStorage)
+        loadUserContextFromFirebase(localProfile.email).catch(console.error);
         await performHealthCheck(localProfile);
       }
     };
@@ -102,6 +105,8 @@ const App: React.FC = () => {
         const s = await db.getSessions(googleUser.email);
         setSessions(s);
         if (s.length > 0) setActiveSessionId(s[0].id); else createNewSession(googleUser.email);
+        // Load learned context from Firebase on login
+        loadUserContextFromFirebase(googleUser.email).catch(console.error);
       } else {
         setUserProfile(googleUser);
         setOnboardingStep(2);
@@ -191,6 +196,19 @@ const App: React.FC = () => {
 
     if (db.isDatabaseEnabled()) {
       db.updateSessionMessages(userProfile.email, activeSessionId, history, newTitle).catch(console.error);
+    }
+
+    // Check for admin commands (only for admin users)
+    if (inputText.trim().startsWith('/') && isAdmin) {
+      const cmdResult = await processAdminCommand(inputText.trim(), isAdmin);
+      if (cmdResult.handled) {
+        const systemMsg: Message = { id: crypto.randomUUID(), role: 'model', content: cmdResult.response, timestamp: new Date() };
+        const updatedMessages = [...history, systemMsg];
+        setSessions(prev => prev.map(s => s.id === activeSessionId ? { ...s, messages: updatedMessages } : s));
+        if (db.isDatabaseEnabled()) db.updateSessionMessages(userProfile.email, activeSessionId, updatedMessages).catch(console.error);
+        setIsLoading(false);
+        return;
+      }
     }
 
     // Check for image generation request
@@ -296,6 +314,8 @@ const App: React.FC = () => {
           selfAssessResponse(updatedMessages, userProfile, learningKey).catch(() => {});
           // 3. Periodic deep reflection to synthesize all learnings
           deepReflection(userProfile, learningKey).catch(() => {});
+          // 4. Extract useful knowledge from conversations to global knowledge base
+          extractAndSaveKnowledge(updatedMessages, userProfile, learningKey).catch(() => {});
         }
       },
       (err) => {

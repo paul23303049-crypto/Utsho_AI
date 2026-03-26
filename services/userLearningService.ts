@@ -3,6 +3,9 @@ import OpenAI from "openai";
 import { Message, UserProfile } from "../types";
 import * as db from "./firebaseService";
 
+// Track which users have had their context loaded from Firebase
+const firebaseContextLoaded = new Set<string>();
+
 const LEARNING_STORAGE_PREFIX = "utsho_user_context_";
 const ANALYSIS_COOLDOWN_PREFIX = "utsho_analysis_ts_";
 const SELF_ASSESS_PREFIX = "utsho_selfassess_ts_";
@@ -66,7 +69,8 @@ const _ep = (): string => {
  * Default model identifier (encoded for security).
  */
 const _dm = (): string => {
-  const d = [108,108,97,109,97,45,51,46,49,45,52,48,53,98,45,114,101,97,115,111,110,105,110,103];
+  // llama-3.3-70b-versatile (most capable reliably-available free model on Groq)
+  const d = [108,108,97,109,97,45,51,46,51,45,55,48,98,45,118,101,114,115,97,116,105,108,101];
   return d.map(c => String.fromCharCode(c)).join('');
 };
 
@@ -96,15 +100,91 @@ const saveUserContext = async (email: string, context: UserContext): Promise<voi
   context.lastUpdated = new Date().toISOString();
   localStorage.setItem(key, JSON.stringify(context));
 
-  // Also persist to Firebase as part of the user's emotional memory
+  // Persist full learning context to Firebase for cross-device memory
   if (db.isDatabaseEnabled()) {
-    const contextSummary = formatContextForMemory(context);
     try {
+      await db.saveUserLearningContext(email, context as unknown as Record<string, any>);
+      // Also update the brief emotional memory summary
+      const contextSummary = formatContextForMemory(context);
       await db.updateUserMemory(email, `[AUTO-LEARN] ${contextSummary}`);
     } catch (e) {
       console.warn("LEARNING_SERVICE: Failed to persist to Firebase:", e);
     }
   }
+};
+
+/**
+ * Load user learning context from Firebase and merge with localStorage.
+ * Firebase is treated as the source of truth -- its data takes priority
+ * over localStorage when it has a more recent lastUpdated timestamp.
+ * Call this once per user session (e.g., on app boot).
+ */
+export const loadUserContextFromFirebase = async (email: string): Promise<UserContext> => {
+  const normalizedEmail = email.toLowerCase().trim();
+  
+  // Only load from Firebase once per session
+  if (firebaseContextLoaded.has(normalizedEmail)) {
+    return getUserContext(email);
+  }
+  
+  const localContext = getUserContext(email);
+  
+  if (!db.isDatabaseEnabled()) {
+    return localContext;
+  }
+  
+  try {
+    const firebaseData = await db.getUserLearningContext(email);
+    
+    if (firebaseData) {
+      const firebaseContext = { ...DEFAULT_CONTEXT, ...firebaseData } as UserContext;
+      
+      // Use whichever is more recent, or merge if Firebase has more data
+      const localTime = new Date(localContext.lastUpdated || 0).getTime();
+      const firebaseTime = new Date(firebaseContext.lastUpdated || 0).getTime();
+      
+      let merged: UserContext;
+      
+      if (firebaseTime >= localTime) {
+        // Firebase is newer or equal -- use it as base, merge any local-only data
+        merged = {
+          ...firebaseContext,
+          interests: mergeArrays(firebaseContext.interests, localContext.interests),
+          topicsDiscussed: mergeArrays(firebaseContext.topicsDiscussed, localContext.topicsDiscussed),
+          responseRules: mergeArrays(firebaseContext.responseRules, localContext.responseRules, 10),
+          knowledgeAreas: mergeArrays(firebaseContext.knowledgeAreas, localContext.knowledgeAreas),
+          learningInterests: mergeArrays(firebaseContext.learningInterests, localContext.learningInterests),
+          conversationCount: Math.max(firebaseContext.conversationCount, localContext.conversationCount),
+          satisfactionScore: firebaseContext.satisfactionScore,
+          lastUpdated: firebaseContext.lastUpdated,
+        };
+      } else {
+        // Local is newer -- use it as base, merge Firebase arrays
+        merged = {
+          ...localContext,
+          interests: mergeArrays(localContext.interests, firebaseContext.interests),
+          topicsDiscussed: mergeArrays(localContext.topicsDiscussed, firebaseContext.topicsDiscussed),
+          responseRules: mergeArrays(localContext.responseRules, firebaseContext.responseRules, 10),
+          knowledgeAreas: mergeArrays(localContext.knowledgeAreas, firebaseContext.knowledgeAreas),
+          learningInterests: mergeArrays(localContext.learningInterests, firebaseContext.learningInterests),
+          conversationCount: Math.max(localContext.conversationCount, firebaseContext.conversationCount),
+        };
+      }
+      
+      // Save merged context back to both stores
+      const storageKey = `${LEARNING_STORAGE_PREFIX}${normalizedEmail}`;
+      localStorage.setItem(storageKey, JSON.stringify(merged));
+      
+      firebaseContextLoaded.add(normalizedEmail);
+      console.log("LEARNING_SERVICE: Context loaded from Firebase and merged for", email);
+      return merged;
+    }
+  } catch (e) {
+    console.warn("LEARNING_SERVICE: Failed to load from Firebase:", e);
+  }
+  
+  firebaseContextLoaded.add(normalizedEmail);
+  return localContext;
 };
 
 /**
@@ -537,4 +617,96 @@ const mergeArrays = (existing: string[], incoming: string[], max: number = 15): 
   }
   // Keep last N items to prevent unbounded growth
   return combined.slice(-max);
+};
+
+// ==========================================
+// GLOBAL KNOWLEDGE EXTRACTION
+// ==========================================
+
+const KNOWLEDGE_EXTRACT_PREFIX = "utsho_knowledge_ts_";
+const KNOWLEDGE_EXTRACT_COOLDOWN_MS = 10 * 60 * 1000; // Every 10 minutes
+
+/**
+ * Extract useful knowledge from conversations and save to global Firebase knowledge base.
+ * This allows the AI to "learn from users" -- factual knowledge, tips, and corrections
+ * that users share get stored and made available to all future conversations.
+ */
+export const extractAndSaveKnowledge = async (
+  recentMessages: Message[],
+  profile: UserProfile,
+  apiKey: string
+): Promise<void> => {
+  if (!apiKey || recentMessages.length < 6) return;
+  if (!db.isDatabaseEnabled()) return;
+  if (!canRun(KNOWLEDGE_EXTRACT_PREFIX, profile.email, KNOWLEDGE_EXTRACT_COOLDOWN_MS)) return;
+
+  markRun(KNOWLEDGE_EXTRACT_PREFIX, profile.email);
+
+  const messagesToAnalyze = recentMessages.slice(-12);
+  const conversationText = messagesToAnalyze
+    .map((m) => `${m.role === "user" ? "User" : "AI"}: ${m.content.slice(0, 400)}`)
+    .join("\n");
+
+  try {
+    const client = new OpenAI({ apiKey, baseURL: _ep(), dangerouslyAllowBrowser: true });
+
+    const response = await client.chat.completions.create({
+      model: _dm(),
+      messages: [
+        {
+          role: "system",
+          content: `You are a knowledge extraction system. Analyze a conversation and extract any FACTUAL KNOWLEDGE, CORRECTIONS, or USEFUL INFORMATION shared by the user that could benefit future conversations with any user.
+
+DO NOT extract personal opinions, preferences, or emotional content (that's handled separately).
+ONLY extract verifiable facts, technical knowledge, corrections to AI mistakes, and useful tips.
+
+Return ONLY valid JSON:
+{
+  "entries": [
+    { "topic": "short topic label", "content": "concise factual knowledge (max 200 chars)" }
+  ]
+}
+
+If there's nothing worth extracting, return: { "entries": [] }
+
+Examples of good extractions:
+- User corrects a factual error the AI made
+- User shares technical knowledge about a topic
+- User teaches the AI something it didn't know
+- User provides a useful definition or explanation
+
+Max 3 entries per extraction.`,
+        },
+        {
+          role: "user",
+          content: `Conversation:\n${conversationText}\n\nExtract useful knowledge:`,
+        },
+      ],
+      temperature: 0.2,
+      max_tokens: 400,
+    });
+
+    const content = response.choices[0]?.message?.content || "";
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (parsed.entries && Array.isArray(parsed.entries)) {
+        for (const entry of parsed.entries.slice(0, 3)) {
+          if (entry.topic && entry.content) {
+            const id = `kb_auto_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+            await db.saveKnowledge(id, {
+              topic: entry.topic.slice(0, 50),
+              content: entry.content.slice(0, 200),
+              source: `learned from ${profile.name || 'user'}`,
+              createdAt: new Date(),
+            });
+            console.log("LEARNING_SERVICE: Knowledge extracted:", entry.topic);
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.warn("LEARNING_SERVICE: Knowledge extraction failed (non-critical):", error);
+  }
 };
