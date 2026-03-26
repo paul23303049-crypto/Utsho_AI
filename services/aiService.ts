@@ -22,11 +22,13 @@ const _ep = (): string => {
  * Default model identifiers (encoded for security).
  */
 const _dm = (): string => {
-  const d = [108,108,97,109,97,45,51,46,49,45,52,48,53,98,45,114,101,97,115,111,110,105,110,103];
+  // meta-llama/llama-4-maverick-17b-128e-instruct (~400B+ total params, highest free model on Groq)
+  const d = [109,101,116,97,45,108,108,97,109,97,47,108,108,97,109,97,45,52,45,109,97,118,101,114,105,99,107,45,49,55,98,45,49,50,56,101,45,105,110,115,116,114,117,99,116];
   return d.map(c => String.fromCharCode(c)).join('');
 };
 const _vm = (): string => {
-  const d = [108,108,97,109,97,45,51,46,50,45,57,48,98,45,118,105,115,105,111,110,45,112,114,101,118,105,101,119];
+  // meta-llama/llama-4-scout-17b-16e-instruct (multimodal, supports vision)
+  const d = [109,101,116,97,45,108,108,97,109,97,47,108,108,97,109,97,45,52,45,115,99,111,117,116,45,49,55,98,45,49,54,101,45,105,110,115,116,114,117,99,116];
   return d.map(c => String.fromCharCode(c)).join('');
 };
 
