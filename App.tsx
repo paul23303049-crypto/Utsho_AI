@@ -1023,15 +1023,16 @@ const App: React.FC = () => {
           </div>
 
           {/* Canvas Body */}
-          <div className="flex-1 overflow-auto p-0">
+          <div className="flex-1 overflow-auto p-0 canvas-pattern">
             {canvasBlocks[canvasActiveIndex] && (
               <div className="h-full">
                 {canvasBlocks[canvasActiveIndex].type === 'explain' ? (
                   /* S-explain: Detailed analysis display */
-                  <div className="p-6 space-y-2 overflow-auto" style={{ maxHeight: '100%' }}>
+                  <div className="p-8 space-y-2 overflow-auto custom-scrollbar h-full" style={{ backgroundColor: `${c.bgPrimary}f2` }}>
                     {canvasBlocks[canvasActiveIndex].content.split('\n').map((line, i) => {
                       const trimmed = line.trim();
                       // Detect markdown-style headers
+                      const isH1 = trimmed.startsWith('# ');
                       const isH2 = trimmed.startsWith('## ');
                       const isH3 = trimmed.startsWith('### ');
                       const isBullet = trimmed.startsWith('- ') || trimmed.startsWith('* ') || /^\d+[\.\)]\s/.test(trimmed);
@@ -1039,32 +1040,38 @@ const App: React.FC = () => {
                       const isSeparator = /^[-=_]{3,}$/.test(trimmed);
                       
                       if (isSeparator) {
-                        return <hr key={i} className="my-4" style={{ borderColor: c.borderPrimary }} />;
+                        return <hr key={i} className="my-6" style={{ borderColor: c.borderPrimary }} />;
                       }
                       if (!trimmed) {
-                        return <div key={i} className="h-3" />;
+                        return <div key={i} className="h-4" />;
                       }
                       
                       const displayText = trimmed
-                        .replace(/^#{2,3}\s+/, '')
+                        .replace(/^#{1,3}\s+/, '')
                         .replace(/^\*\*(.+)\*\*$/, '$1');
                       
                       return (
                         <div 
                           key={i} 
                           className={`leading-relaxed ${
-                            isH2 ? 'text-lg font-black mt-6 mb-2 pb-2 border-b' :
-                            isH3 ? 'text-base font-bold mt-4 mb-1' :
-                            isBold ? 'font-bold mt-3' :
-                            isBullet ? 'pl-4 text-sm' :
-                            'text-sm'
+                            isH1 ? 'text-2xl font-black mt-8 mb-4 border-b-2 pb-2' :
+                            isH2 ? 'text-xl font-black mt-6 mb-2 pb-2 border-b' :
+                            isH3 ? 'text-lg font-bold mt-4 mb-1' :
+                            isBold ? 'font-bold mt-4 text-sm' :
+                            isBullet ? 'pl-6 text-[15px] relative' :
+                            'text-[15px]'
                           }`}
                           style={{ 
-                            color: isH2 ? '#06b6d4' : isH3 ? c.accent : c.textPrimary,
-                            borderColor: isH2 ? `${c.borderPrimary}` : undefined,
+                            color: isH1 ? c.accent : isH2 ? '#06b6d4' : isH3 ? c.accent : c.textPrimary,
+                            borderColor: (isH1 || isH2) ? `${c.borderPrimary}` : undefined,
                           }}
                         >
-                          {isBullet && <span style={{ color: '#06b6d4' }} className="mr-2">{trimmed.match(/^[-*]|\d+[\.\)]/)?.[0]}</span>}
+                          {isBullet && (
+                            <span 
+                              className="absolute left-0 top-2 w-1.5 h-1.5 rounded-full" 
+                              style={{ backgroundColor: isH1 ? c.accent : '#06b6d4' }}
+                            />
+                          )}
                           {isBullet ? trimmed.replace(/^[-*]\s+|\d+[\.\)]\s+/, '') : displayText}
                         </div>
                       );
@@ -1195,26 +1202,39 @@ const App: React.FC = () => {
                           {m.content}
                         </div>
                       )}
-                      {/* S-code / S-math canvas buttons */}
+                      {/* S-code / S-math canvas blocks as Artifact Cards */}
                       {m.canvasBlocks && m.canvasBlocks.length > 0 && (
-                        <div className="flex flex-wrap gap-2 mt-1">
+                        <div className="flex flex-col gap-2 mt-2 w-full max-w-sm">
                           {m.canvasBlocks.map((block, bIdx) => (
                             <button
                               key={bIdx}
-                              onClick={() => openCanvas(m.canvasBlocks!)}
-                              className="flex items-center gap-2 border py-2 px-4 rounded-2xl text-xs font-bold transition-all shadow-sm hover:scale-105 active:scale-95"
+                              onClick={() => {
+                                setCanvasActiveIndex(bIdx);
+                                openCanvas(m.canvasBlocks!);
+                              }}
+                              className="flex items-center gap-3 border p-3 rounded-2xl text-left transition-all shadow-sm hover:shadow-md active:scale-[0.98] group"
                               style={{ 
-                                backgroundColor: block.type === 'code' ? c.accentSubtle : block.type === 'math' ? 'rgba(245,158,11,0.08)' : 'rgba(6,182,212,0.08)',
-                                borderColor: block.type === 'code' ? c.accent : block.type === 'math' ? '#f59e0b' : '#06b6d4',
-                                color: block.type === 'code' ? c.accent : block.type === 'math' ? '#f59e0b' : '#06b6d4',
+                                backgroundColor: c.bgSecondary,
+                                borderColor: c.borderPrimary,
                               }}
                             >
-                              {block.type === 'code' 
-                                ? <><Code size={14} /> Open in S-code{block.language ? ` (${langDisplayName(block.language)})` : ''}<ChevronRight size={12} /></>
-                                : block.type === 'math'
-                                ? <><Calculator size={14} /> Open in S-math<ChevronRight size={12} /></>
-                                : <><FileText size={14} /> Open in S-explain<ChevronRight size={12} /></>
-                              }
+                              <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-transform group-hover:scale-110" style={{ 
+                                backgroundColor: block.type === 'code' ? c.accentSubtle : block.type === 'math' ? 'rgba(245,158,11,0.1)' : 'rgba(6,182,212,0.1)',
+                                color: block.type === 'code' ? c.accent : block.type === 'math' ? '#f59e0b' : '#06b6d4',
+                              }}>
+                                {block.type === 'code' ? <Code size={20} /> : block.type === 'math' ? <Calculator size={20} /> : <FileText size={20} />}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-[11px] font-black uppercase tracking-widest opacity-60" style={{ color: c.textMuted }}>
+                                  {block.type === 'code' ? 'S-CODE' : block.type === 'math' ? 'S-MATH' : 'S-EXPLAIN'}
+                                </div>
+                                <div className="text-sm font-bold truncate" style={{ color: c.textPrimary }}>
+                                  {block.title || (block.type === 'code' ? langDisplayName(block.language) : block.type === 'math' ? 'Solution' : 'Analysis')}
+                                </div>
+                              </div>
+                              <div className="p-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity" style={{ backgroundColor: c.bgTertiary, color: c.accent }}>
+                                <ChevronRight size={16} />
+                              </div>
                             </button>
                           ))}
                         </div>
