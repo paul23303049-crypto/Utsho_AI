@@ -615,7 +615,7 @@ const App: React.FC = () => {
             {dmView === 'chat' && (<>
               {/* Chat header */}
               <div className="flex items-center gap-3 px-4 py-3 border-b" style={{ borderColor: c.borderPrimary }}>
-                <button onClick={() => setDmView('conversations')} className="p-1" style={{ color: c.textMuted }}>&larr;</button>
+                <button onClick={async () => { setDmView('conversations'); if (db.isDatabaseEnabled()) { const convs = await db.getUserConversations(userProfile!.email); setDmConversations(convs); } }} className="p-1" style={{ color: c.textMuted }}>&larr;</button>
                 <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs" style={{ backgroundColor: c.accent }}>{dmChatWith[0]?.toUpperCase()}</div>
                 <div className="text-sm font-bold" style={{ color: c.textPrimary }}>{dmChatWith}</div>
               </div>

@@ -470,29 +470,36 @@ export const getUserConversations = async (email: string): Promise<{
 }[]> => {
   if (!db) return [];
   const normalizedEmail = email.toLowerCase().trim();
-  // Get all conversations - we'll filter client-side since Firestore
-  // array-contains works for this
-  const ref = collection(db, 'conversations');
-  const q = query(ref, orderBy('updatedAt', 'desc'));
-  const snap = await getDocs(q);
-  
-  return snap.docs
-    .filter(d => {
-      const data = d.data();
-      return data.participants && data.participants.includes(normalizedEmail);
-    })
-    .map(d => {
-      const data = d.data();
-      const otherEmail = data.participants.find((p: string) => p !== normalizedEmail) || '';
-      return {
-        id: d.id,
-        participants: data.participants,
-        otherEmail,
-        lastMessage: data.lastMessage || '',
-        lastMessageFrom: data.lastMessageFrom || '',
-        lastMessageAt: data.lastMessageAt instanceof Timestamp ? data.lastMessageAt.toDate() : new Date(),
-      };
-    });
+  try {
+    // Get all conversations and filter client-side
+    const ref = collection(db, 'conversations');
+    const snap = await getDocs(ref);
+    
+    const results = snap.docs
+      .filter(d => {
+        const data = d.data();
+        return data.participants && Array.isArray(data.participants) && data.participants.includes(normalizedEmail);
+      })
+      .map(d => {
+        const data = d.data();
+        const otherEmail = data.participants.find((p: string) => p !== normalizedEmail) || '';
+        return {
+          id: d.id,
+          participants: data.participants,
+          otherEmail,
+          lastMessage: data.lastMessage || '',
+          lastMessageFrom: data.lastMessageFrom || '',
+          lastMessageAt: data.lastMessageAt instanceof Timestamp ? data.lastMessageAt.toDate() : (data.updatedAt instanceof Timestamp ? data.updatedAt.toDate() : new Date()),
+        };
+      });
+    
+    // Sort by most recent first (client-side)
+    results.sort((a, b) => b.lastMessageAt.getTime() - a.lastMessageAt.getTime());
+    return results;
+  } catch (e) {
+    console.error("FIREBASE: getUserConversations error:", e);
+    return [];
+  }
 };
 
 /**
