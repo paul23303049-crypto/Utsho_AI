@@ -1,1 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><rect width="512" height="512" rx="100" fill="#6366f1"/><text x="256" y="300" font-family="Arial,sans-serif" font-size="280" font-weight="bold" text-anchor="middle" fill="white">U</text></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#4f46e5"/>
+  <!-- Main sparkle star -->
+  <path d="M256 100 C256 100, 280 188, 288 212 C312 212, 400 212, 400 212 C400 212, 312 248, 288 256 C288 280, 288 368, 288 368 C288 368, 256 280, 256 256 C256 256, 224 368, 224 368 C224 368, 224 280, 224 256 C200 248, 112 212, 112 212 C112 212, 200 212, 224 212 C224 188, 256 100, 256 100Z" fill="white"/>
+  <!-- Small sparkle dot top-left -->
+  <circle cx="164" cy="136" r="10" fill="white" opacity="0.8"/>
+  <line x1="164" y1="116" x2="164" y2="156" stroke="white" stroke-width="6" opacity="0.8"/>
+  <line x1="144" y1="136" x2="184" y2="136" stroke="white" stroke-width="6" opacity="0.8"/>
+  <!-- Plus sign top-right -->
+  <line x1="368" y1="96" x2="368" y2="152" stroke="white" stroke-width="10" stroke-linecap="round"/>
+  <line x1="340" y1="124" x2="396" y2="124" stroke="white" stroke-width="10" stroke-linecap="round"/>
+</svg>
