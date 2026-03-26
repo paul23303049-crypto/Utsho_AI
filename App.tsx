@@ -198,9 +198,9 @@ const App: React.FC = () => {
       db.updateSessionMessages(userProfile.email, activeSessionId, history, newTitle).catch(console.error);
     }
 
-    // Check for admin commands (only for admin users)
-    if (inputText.trim().startsWith('/') && isAdmin) {
-      const cmdResult = await processAdminCommand(inputText.trim(), isAdmin);
+    // Check for commands (admin commands + user commands like /feedback)
+    if (inputText.trim().startsWith('/')) {
+      const cmdResult = await processAdminCommand(inputText.trim(), isAdmin, userProfile.email, userProfile.name);
       if (cmdResult.handled) {
         const systemMsg: Message = { id: crypto.randomUUID(), role: 'model', content: cmdResult.response, timestamp: new Date() };
         const updatedMessages = [...history, systemMsg];

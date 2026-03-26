@@ -133,7 +133,9 @@ export const formatForSystemPrompt = async (): Promise<string> => {
  */
 export const processAdminCommand = async (
   message: string,
-  isAdmin: boolean
+  isAdmin: boolean,
+  userEmail?: string,
+  userName?: string
 ): Promise<AdminCommandResult> => {
   const trimmed = message.trim();
   
@@ -142,16 +144,45 @@ export const processAdminCommand = async (
     return { handled: false, response: "" };
   }
 
-  // Non-admin users can't use admin commands
-  if (!isAdmin) {
-    // Allow /status for admin only, ignore for others
-    return { handled: false, response: "" };
-  }
-
   const parts = trimmed.split(/\s+/);
   const command = parts[0].toLowerCase();
   const subCommand = parts[1]?.toLowerCase() || "";
   const rest = parts.slice(2).join(" ").trim();
+
+  // === USER COMMANDS (available to ALL users) ===
+  try {
+    // /feedback <message> -- Send feedback to admin
+    if (command === "/feedback") {
+      const feedbackText = parts.slice(1).join(" ").trim();
+      if (!feedbackText) return { handled: true, response: "Usage: /feedback <your message>\n\nSend feedback, suggestions, or report issues directly to the admin." };
+      const id = `fb_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      await db.saveFeedback({
+        id,
+        fromEmail: (userEmail || "anonymous").toLowerCase(),
+        fromName: userName || "Anonymous",
+        message: feedbackText,
+        createdAt: new Date(),
+        read: false,
+      });
+      return { handled: true, response: "Your feedback has been sent to the admin. Thank you!" };
+    }
+
+    // /myreplies -- Check if admin has replied to your feedback
+    if (command === "/myreplies") {
+      if (!userEmail) return { handled: true, response: "You need to be logged in to check replies." };
+      const replies = await db.getUserFeedbackReplies(userEmail);
+      if (replies.length === 0) return { handled: true, response: "No replies from the admin yet. Use /feedback <message> to send feedback." };
+      const list = replies.map((r, i) => `${i + 1}. You said: "${r.message.slice(0, 60)}${r.message.length > 60 ? '...' : ''}"\n   Admin replied: "${r.reply}"\n   (${r.repliedAt.toLocaleDateString()})`).join("\n\n");
+      return { handled: true, response: `Admin Replies (${replies.length}):\n\n${list}` };
+    }
+  } catch (error: any) {
+    return { handled: true, response: `Command failed: ${error.message}` };
+  }
+
+  // === ADMIN-ONLY COMMANDS ===
+  if (!isAdmin) {
+    return { handled: false, response: "" };
+  }
 
   try {
     // /set directive <text>
@@ -237,17 +268,47 @@ export const processAdminCommand = async (
       return { handled: true, response: `Knowledge Base (${knowledge.length} entries):\n${list}` };
     }
 
+    // /inbox -- View all user feedback
+    if (command === "/inbox") {
+      const feedback = await db.getAllFeedback();
+      if (feedback.length === 0) return { handled: true, response: "No feedback messages yet." };
+      const unread = feedback.filter(f => !f.read).length;
+      const list = feedback.slice(0, 20).map((f, i) => {
+        const status = f.read ? (f.reply ? 'replied' : 'read') : 'NEW';
+        return `${i + 1}. [${status}] ${f.fromName} (${f.fromEmail})\n   "${f.message.slice(0, 80)}${f.message.length > 80 ? '...' : ''}"\n   ID: ${f.id} | ${f.createdAt.toLocaleDateString()}${f.reply ? '\n   Your reply: "' + f.reply.slice(0, 60) + '"' : ''}`;
+      }).join("\n\n");
+      return { handled: true, response: `Inbox (${unread} unread / ${feedback.length} total):\n\n${list}\n\nUse /reply <feedback-id> <message> to respond.` };
+    }
+
+    // /reply <feedback-id> <message> -- Reply to user feedback
+    if (command === "/reply") {
+      const feedbackId = parts[1] || "";
+      const replyText = parts.slice(2).join(" ").trim();
+      if (!feedbackId || !replyText) return { handled: true, response: "Usage: /reply <feedback-id> <message>\n\nCheck /inbox for feedback IDs." };
+      await db.replyToFeedback(feedbackId, replyText);
+      return { handled: true, response: `Reply sent to feedback ${feedbackId}:\n"${replyText}"\n\nThe user can see your reply with /myreplies.` };
+    }
+
+    // /read <feedback-id> -- Mark feedback as read
+    if (command === "/read") {
+      const feedbackId = parts[1] || "";
+      if (!feedbackId) return { handled: true, response: "Usage: /read <feedback-id>" };
+      await db.markFeedbackRead(feedbackId);
+      return { handled: true, response: `Feedback ${feedbackId} marked as read.` };
+    }
+
     // /status
     if (command === "/status") {
-      const [directives, knowledge, config] = await Promise.all([
+      const [directives, knowledge, config, unreadCount] = await Promise.all([
         db.getAdminDirectives(),
         db.getKnowledgeBase(),
         db.getAdminConfig(),
+        db.getUnreadFeedbackCount(),
       ]);
       const configStr = Object.entries(config).map(([k, v]) => `  ${k}: ${typeof v === 'string' ? v.slice(0, 60) : v}`).join("\n") || "  (none)";
       return {
         handled: true,
-        response: `System Status:\n\nDirectives: ${directives.length} active\nKnowledge entries: ${knowledge.length}\n\nConfig:\n${configStr}\n\nCommands:\n/set directive <text>\n/set personality <text>\n/set greeting <text>\n/set config <key> <value>\n/train <topic> :: <content>\n/list directives\n/list knowledge\n/remove directive <id>\n/remove knowledge <id>`
+        response: `System Status:\n\nDirectives: ${directives.length} active\nKnowledge entries: ${knowledge.length}\nUnread feedback: ${unreadCount}\n\nConfig:\n${configStr}`
       };
     }
 
@@ -255,7 +316,7 @@ export const processAdminCommand = async (
     if (command === "/help") {
       return {
         handled: true,
-        response: `Admin Commands:\n\n/set directive <text> - Add global behavioral rule\n/set personality <text> - Set AI personality\n/set greeting <text> - Set greeting style\n/set config <key> <value> - Set config value\n/train <topic> :: <content> - Add to knowledge base\n/list directives - Show all directives\n/list knowledge - Show knowledge base\n/remove directive <id> - Remove a directive\n/remove knowledge <id> - Remove knowledge entry\n/status - Show system status\n/help - Show this help`
+        response: `Admin Commands:\n\n--- Configuration ---\n/set directive <text> - Add global behavioral rule\n/set personality <text> - Set AI personality\n/set greeting <text> - Set greeting style\n/set config <key> <value> - Set config value\n/train <topic> :: <content> - Add to knowledge base\n/list directives - Show all directives\n/list knowledge - Show knowledge base\n/remove directive <id> - Remove a directive\n/remove knowledge <id> - Remove knowledge entry\n\n--- Feedback ---\n/inbox - View user feedback messages\n/reply <id> <message> - Reply to feedback\n/read <id> - Mark feedback as read\n\n--- System ---\n/status - Show system status\n/help - Show this help\n\n--- User Commands (all users) ---\n/feedback <message> - Send feedback to admin\n/myreplies - Check admin replies`
       };
     }
 

@@ -313,6 +313,106 @@ export const getAdminConfig = async (): Promise<Record<string, string>> => {
   return snap.exists() ? (snap.data() as Record<string, string>) : {};
 };
 
+// ==========================================
+// USER FEEDBACK SYSTEM
+// ==========================================
+
+/**
+ * Save a user feedback message to Firebase.
+ */
+export const saveFeedback = async (feedback: {
+  id: string;
+  fromEmail: string;
+  fromName: string;
+  message: string;
+  createdAt: Date;
+  read: boolean;
+  reply?: string;
+  repliedAt?: Date;
+}) => {
+  if (!db) return;
+  const ref = doc(db, 'system', 'feedback', 'messages', feedback.id);
+  await setDoc(ref, {
+    ...feedback,
+    createdAt: Timestamp.fromDate(feedback.createdAt),
+    repliedAt: feedback.repliedAt ? Timestamp.fromDate(feedback.repliedAt) : null,
+  });
+};
+
+/**
+ * Get all feedback messages (admin only).
+ */
+export const getAllFeedback = async (): Promise<{
+  id: string;
+  fromEmail: string;
+  fromName: string;
+  message: string;
+  createdAt: Date;
+  read: boolean;
+  reply?: string;
+  repliedAt?: Date;
+}[]> => {
+  if (!db) return [];
+  const ref = collection(db, 'system', 'feedback', 'messages');
+  const q = query(ref, orderBy('createdAt', 'desc'));
+  const snap = await getDocs(q);
+  return snap.docs.map(d => {
+    const data = d.data();
+    return {
+      id: d.id,
+      fromEmail: data.fromEmail,
+      fromName: data.fromName,
+      message: data.message,
+      createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(data.createdAt),
+      read: data.read || false,
+      reply: data.reply || undefined,
+      repliedAt: data.repliedAt instanceof Timestamp ? data.repliedAt.toDate() : undefined,
+    };
+  });
+};
+
+/**
+ * Get unread feedback count (admin only).
+ */
+export const getUnreadFeedbackCount = async (): Promise<number> => {
+  if (!db) return 0;
+  const all = await getAllFeedback();
+  return all.filter(f => !f.read).length;
+};
+
+/**
+ * Mark a feedback as read.
+ */
+export const markFeedbackRead = async (feedbackId: string) => {
+  if (!db) return;
+  const ref = doc(db, 'system', 'feedback', 'messages', feedbackId);
+  await setDoc(ref, { read: true }, { merge: true });
+};
+
+/**
+ * Reply to a feedback message.
+ */
+export const replyToFeedback = async (feedbackId: string, replyText: string) => {
+  if (!db) return;
+  const ref = doc(db, 'system', 'feedback', 'messages', feedbackId);
+  await setDoc(ref, { reply: replyText, repliedAt: Timestamp.now(), read: true }, { merge: true });
+};
+
+/**
+ * Get feedback replies for a specific user (to show them admin replies).
+ */
+export const getUserFeedbackReplies = async (email: string): Promise<{
+  message: string;
+  reply: string;
+  repliedAt: Date;
+}[]> => {
+  if (!db) return [];
+  const all = await getAllFeedback();
+  return all
+    .filter(f => f.fromEmail === email.toLowerCase() && f.reply)
+    .map(f => ({ message: f.message, reply: f.reply!, repliedAt: f.repliedAt! }));
+};
+
 /**
  * Save the full user learning context to Firebase.
  * Stored as a subcollection document for structured persistence.
