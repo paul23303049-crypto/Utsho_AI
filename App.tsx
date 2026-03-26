@@ -49,6 +49,8 @@ const App: React.FC = () => {
   const [dmNewEmail, setDmNewEmail] = useState('');
   const [dmError, setDmError] = useState('');
   const [installPrompt, setInstallPrompt] = useState<any>(null);
+  const [updateStatus, setUpdateStatus] = useState<string | null>(null);
+  const [isUpdating, setIsUpdating] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -133,6 +135,56 @@ const App: React.FC = () => {
         setUserProfile(googleUser);
         setOnboardingStep(2);
       }
+    }
+  };
+
+  const handleUpdateApp = async () => {
+    if (!('serviceWorker' in navigator)) {
+      setUpdateStatus("Updates not supported in this browser.");
+      return;
+    }
+
+    setIsUpdating(true);
+    setUpdateStatus("Checking for updates...");
+
+    try {
+      const registration = await navigator.serviceWorker.getRegistration();
+      if (registration) {
+        await registration.update();
+        
+        // If there's a waiting worker, we can skip waiting and reload
+        if (registration.waiting) {
+          registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+          setUpdateStatus("New version found! Reloading...");
+          setTimeout(() => window.location.reload(), 1500);
+        } else {
+          // No waiting worker immediately, listen for updatefound
+          registration.onupdatefound = () => {
+            const installingWorker = registration.installing;
+            if (installingWorker) {
+              installingWorker.onstatechange = () => {
+                if (installingWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                  setUpdateStatus("New version installed! Reloading...");
+                  setTimeout(() => window.location.reload(), 1500);
+                }
+              };
+            }
+          };
+          
+          // Give it a bit of time to find an update
+          setTimeout(() => {
+            setIsUpdating(false);
+            setUpdateStatus("Update check complete. You are likely on the latest version.");
+          }, 3000);
+        }
+      } else {
+        setUpdateStatus("No service worker found. Please refresh the page.");
+        setIsUpdating(false);
+      }
+    } catch (error) {
+      console.error("Update error:", error);
+      setUpdateStatus("Failed to check for updates.");
+      setIsUpdating(false);
     }
   };
 
@@ -561,6 +613,28 @@ const App: React.FC = () => {
                  <input type="password" value={customKeyInput} onChange={e => setCustomKeyInput(e.target.value)} placeholder="Paste your API key here..." className="w-full border p-4 rounded-xl outline-none text-sm" style={{ backgroundColor: c.bgInput, borderColor: c.borderPrimary, color: c.textPrimary }} />
                  <p className="text-[10px] italic" style={{ color: c.textMuted }}>If left blank, Utsho will use the shared community pool.</p>
               </div>
+
+              <div className="pt-2 border-t" style={{ borderColor: c.borderPrimary }}>
+                <button 
+                  onClick={handleUpdateApp} 
+                  disabled={isUpdating}
+                  className="w-full py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-95"
+                  style={{ 
+                    backgroundColor: c.bgTertiary, 
+                    color: c.accent,
+                    opacity: isUpdating ? 0.7 : 1
+                  }}
+                >
+                  <RefreshCcw size={14} className={isUpdating ? "animate-spin" : ""} />
+                  {isUpdating ? "Checking..." : "Upgrade App / Sync Web Version"}
+                </button>
+                {updateStatus && (
+                  <p className="text-[10px] mt-2 text-center font-medium animate-in fade-in slide-in-from-top-1" style={{ color: c.textMuted }}>
+                    {updateStatus}
+                  </p>
+                )}
+              </div>
+
               <div className="flex gap-3">
                  <button onClick={() => setIsSettingsOpen(false)} className="flex-1 py-3 font-bold border rounded-xl transition-colors" style={{ borderColor: c.borderPrimary, color: c.textSecondary, backgroundColor: 'transparent' }} onMouseEnter={e => (e.currentTarget.style.backgroundColor = c.bgTertiary)} onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}>Cancel</button>
                  <button onClick={saveSettings} className="flex-1 py-3 font-bold rounded-xl transition-colors" style={{ backgroundColor: c.accent, color: '#fff', boxShadow: `0 4px 14px ${c.accentShadow}` }}>Save</button>
