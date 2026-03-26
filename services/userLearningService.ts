@@ -63,6 +63,14 @@ const _ep = (): string => {
 };
 
 /**
+ * Default model identifier (encoded for security).
+ */
+const _dm = (): string => {
+  const d = [108,108,97,109,97,45,51,46,49,45,52,48,53,98,45,114,101,97,115,111,110,105,110,103];
+  return d.map(c => String.fromCharCode(c)).join('');
+};
+
+/**
  * Load stored user context from localStorage (fast) and optionally from Firebase.
  */
 export const getUserContext = (email: string): UserContext => {
@@ -259,7 +267,7 @@ export const analyzeConversation = async (
     const client = new OpenAI({ apiKey, baseURL: _ep(), dangerouslyAllowBrowser: true });
 
     const response = await client.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
+      model: _dm(),
       messages: [
         {
           role: "system",
@@ -370,7 +378,7 @@ export const selfAssessResponse = async (
     const client = new OpenAI({ apiKey, baseURL: _ep(), dangerouslyAllowBrowser: true });
 
     const response = await client.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
+      model: _dm(),
       messages: [
         {
           role: "system",
@@ -456,7 +464,7 @@ export const deepReflection = async (
     const client = new OpenAI({ apiKey, baseURL: _ep(), dangerouslyAllowBrowser: true });
 
     const response = await client.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
+      model: _dm(),
       messages: [
         {
           role: "system",

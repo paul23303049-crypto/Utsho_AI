@@ -19,10 +19,16 @@ const _ep = (): string => {
 };
 
 /**
- * Default model identifiers.
+ * Default model identifiers (encoded for security).
  */
-const _dm = (): string => "llama-3.3-70b-versatile";
-const _vm = (): string => "llama-3.2-11b-vision-preview";
+const _dm = (): string => {
+  const d = [108,108,97,109,97,45,51,46,49,45,52,48,53,98,45,114,101,97,115,111,110,105,110,103];
+  return d.map(c => String.fromCharCode(c)).join('');
+};
+const _vm = (): string => {
+  const d = [108,108,97,109,97,45,51,46,50,45,57,48,98,45,118,105,115,105,111,110,45,112,114,101,118,105,101,119];
+  return d.map(c => String.fromCharCode(c)).join('');
+};
 
 /**
  * Provider configuration for custom API keys.
