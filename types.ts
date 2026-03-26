@@ -16,6 +16,15 @@ export interface UserProfile {
   preferredLanguage?: string;
 }
 
+export type CanvasType = 'code' | 'math';
+
+export interface CanvasBlock {
+  type: CanvasType;
+  content: string;
+  language?: string; // e.g. 'python', 'javascript', etc.
+  title?: string;    // e.g. 'S-code: Python' or 'S-math: Solution'
+}
+
 export interface Message {
   id: string;
   role: Role;
@@ -26,6 +35,7 @@ export interface Message {
   imagePart?: { data: string; mimeType: string };
   documentText?: string;
   documentName?: string;
+  canvasBlocks?: CanvasBlock[];
 }
 
 export interface ChatSession {

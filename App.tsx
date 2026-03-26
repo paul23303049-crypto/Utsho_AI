@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Plus, MessageSquare, Trash2, Menu, Sparkles, LogOut, RefreshCcw, Settings, Globe, AlertCircle, Paperclip, X, Facebook, Instagram, Palette, Check } from 'lucide-react';
-import { ChatSession, Message, UserProfile, Gender, ApiProvider } from './types';
+import { Send, Plus, MessageSquare, Trash2, Menu, Sparkles, LogOut, RefreshCcw, Settings, Globe, AlertCircle, Paperclip, X, Facebook, Instagram, Palette, Check, Code, Calculator, Copy, ChevronRight, Maximize2, Minimize2 } from 'lucide-react';
+import { ChatSession, Message, UserProfile, Gender, ApiProvider, CanvasBlock, CanvasType } from './types';
 import { streamChatResponse, checkApiHealth, getPoolStatus, adminResetPool, getLastNodeError, getActiveKey } from './services/aiService';
 import { generateImage, getRemainingImageGenerations, getImageDailyLimit } from './services/imageService';
 import { analyzeConversation, selfAssessResponse, deepReflection, loadUserContextFromFirebase, extractAndSaveKnowledge } from './services/userLearningService';
@@ -50,6 +50,13 @@ const App: React.FC = () => {
   const [dmError, setDmError] = useState('');
   const [installPrompt, setInstallPrompt] = useState<any>(null);
 
+  // Canvas state (S-code / S-math)
+  const [canvasOpen, setCanvasOpen] = useState(false);
+  const [canvasBlocks, setCanvasBlocks] = useState<CanvasBlock[]>([]);
+  const [canvasActiveIndex, setCanvasActiveIndex] = useState(0);
+  const [canvasFullscreen, setCanvasFullscreen] = useState(false);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -57,6 +64,85 @@ const App: React.FC = () => {
   const isUserDebi = userProfile ? db.isDebi(userProfile.email) : false;
 
   const c = theme.colors;
+
+  /**
+   * Parses AI response text to extract code blocks and math blocks.
+   * Returns the cleaned text (without code/math) and extracted CanvasBlocks.
+   */
+  const parseCanvasBlocks = (text: string): { cleanText: string; blocks: CanvasBlock[] } => {
+    const blocks: CanvasBlock[] = [];
+    const codeBlockRegex = /```(\w+)?\n([\s\S]*?)```/g;
+    let match;
+    let cleanText = text;
+
+    while ((match = codeBlockRegex.exec(text)) !== null) {
+      const lang = (match[1] || '').toLowerCase().trim();
+      const content = match[2].trim();
+      if (!content) continue;
+
+      if (lang === 'math') {
+        blocks.push({
+          type: 'math',
+          content,
+          title: 'S-math: Solution',
+        });
+      } else {
+        const langLabel = lang || 'code';
+        blocks.push({
+          type: 'code',
+          content,
+          language: lang || undefined,
+          title: `S-code: ${langLabel.charAt(0).toUpperCase() + langLabel.slice(1)}`,
+        });
+      }
+    }
+
+    // Remove the code blocks from the display text, leaving only explanation text
+    if (blocks.length > 0) {
+      cleanText = text.replace(codeBlockRegex, '').trim();
+      // If only whitespace/empty remains after removal, provide a default message
+      if (!cleanText) {
+        cleanText = blocks[0].type === 'code' 
+          ? 'Here is the code:' 
+          : 'Here is the solution:';
+      }
+    }
+
+    return { cleanText, blocks };
+  };
+
+  /** Opens the canvas panel with the given blocks */
+  const openCanvas = (blocks: CanvasBlock[]) => {
+    setCanvasBlocks(blocks);
+    setCanvasActiveIndex(0);
+    setCanvasOpen(true);
+  };
+
+  /** Copy canvas content to clipboard */
+  const copyCanvasContent = (index: number) => {
+    const block = canvasBlocks[index];
+    if (block) {
+      navigator.clipboard.writeText(block.content).then(() => {
+        setCopiedIndex(index);
+        setTimeout(() => setCopiedIndex(null), 2000);
+      });
+    }
+  };
+
+  /** Language display name mapping */
+  const langDisplayName = (lang?: string): string => {
+    if (!lang) return 'Code';
+    const map: Record<string, string> = {
+      python: 'Python', javascript: 'JavaScript', typescript: 'TypeScript',
+      java: 'Java', c: 'C', cpp: 'C++', csharp: 'C#', go: 'Go',
+      rust: 'Rust', ruby: 'Ruby', php: 'PHP', swift: 'Swift',
+      kotlin: 'Kotlin', html: 'HTML', css: 'CSS', sql: 'SQL',
+      bash: 'Bash', shell: 'Shell', json: 'JSON', xml: 'XML',
+      yaml: 'YAML', dart: 'Dart', r: 'R', matlab: 'MATLAB',
+      scala: 'Scala', perl: 'Perl', lua: 'Lua', haskell: 'Haskell',
+    };
+    return map[lang] || lang.charAt(0).toUpperCase() + lang.slice(1);
+  };
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -337,14 +423,24 @@ const App: React.FC = () => {
       (fullText, sources, imageUrl) => {
         setIsLoading(false);
         const parts = fullText.split('[SPLIT]').map(p => p.trim()).filter(p => p.length > 0);
-        const newMessages: Message[] = parts.map((p, i) => ({
-          id: crypto.randomUUID(),
-          role: 'model',
-          content: p,
-          timestamp: new Date(),
-          sources: i === parts.length - 1 ? sources : undefined,
-          imageUrl: i === 0 ? imageUrl : undefined
-        }));
+        let allCanvasBlocks: CanvasBlock[] = [];
+        const newMessages: Message[] = parts.map((p, i) => {
+          const { cleanText, blocks } = parseCanvasBlocks(p);
+          if (blocks.length > 0) allCanvasBlocks = [...allCanvasBlocks, ...blocks];
+          return {
+            id: crypto.randomUUID(),
+            role: 'model' as const,
+            content: cleanText,
+            timestamp: new Date(),
+            sources: i === parts.length - 1 ? sources : undefined,
+            imageUrl: i === 0 ? imageUrl : undefined,
+            canvasBlocks: blocks.length > 0 ? blocks : undefined,
+          };
+        });
+        // Auto-open canvas if code/math blocks were found
+        if (allCanvasBlocks.length > 0) {
+          openCanvas(allCanvasBlocks);
+        }
         
         const updatedMessages = [...history, ...newMessages];
         setSessions(prev => prev.map(s => s.id === activeSessionId ? { ...s, messages: updatedMessages } : s));
@@ -836,7 +932,156 @@ const App: React.FC = () => {
         </div>
       </aside>
 
-      <main className="flex-1 flex flex-col relative overflow-hidden">
+      {/* S-code / S-math Canvas Panel */}
+      {canvasOpen && (
+        <div 
+          className={`${canvasFullscreen ? 'fixed inset-0 z-[90]' : 'relative'} flex flex-col border-l`}
+          style={{ 
+            backgroundColor: c.bgPrimary, 
+            borderColor: c.borderPrimary,
+            width: canvasFullscreen ? '100%' : '45%',
+            minWidth: canvasFullscreen ? '100%' : '380px',
+            maxWidth: canvasFullscreen ? '100%' : '600px',
+            order: 2,
+          }}
+        >
+          {/* Canvas Header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: c.borderPrimary, backgroundColor: c.bgSecondary }}>
+            <div className="flex items-center gap-2">
+              {canvasBlocks[canvasActiveIndex]?.type === 'code' 
+                ? <Code size={18} style={{ color: c.accent }} />
+                : <Calculator size={18} style={{ color: '#f59e0b' }} />
+              }
+              <span className="text-sm font-black uppercase tracking-wider" style={{ 
+                color: canvasBlocks[canvasActiveIndex]?.type === 'code' ? c.accent : '#f59e0b' 
+              }}>
+                {canvasBlocks[canvasActiveIndex]?.title || 'Canvas'}
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              {canvasBlocks.length > 1 && (
+                <div className="flex items-center gap-1 mr-2">
+                  {canvasBlocks.map((_, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setCanvasActiveIndex(idx)}
+                      className="w-2 h-2 rounded-full transition-all"
+                      style={{ 
+                        backgroundColor: idx === canvasActiveIndex ? c.accent : c.bgTertiary,
+                        transform: idx === canvasActiveIndex ? 'scale(1.3)' : 'scale(1)',
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
+              <button 
+                onClick={() => copyCanvasContent(canvasActiveIndex)} 
+                className="p-2 rounded-xl transition-all hover:scale-105"
+                style={{ color: copiedIndex === canvasActiveIndex ? '#22c55e' : c.textMuted }}
+                title="Copy"
+              >
+                {copiedIndex === canvasActiveIndex ? <Check size={16} /> : <Copy size={16} />}
+              </button>
+              <button 
+                onClick={() => setCanvasFullscreen(!canvasFullscreen)} 
+                className="p-2 rounded-xl transition-all hover:scale-105"
+                style={{ color: c.textMuted }}
+                title={canvasFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+              >
+                {canvasFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+              </button>
+              <button 
+                onClick={() => { setCanvasOpen(false); setCanvasFullscreen(false); }} 
+                className="p-2 rounded-xl transition-all hover:scale-105 hover:text-red-400"
+                style={{ color: c.textMuted }}
+                title="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+
+          {/* Canvas Body */}
+          <div className="flex-1 overflow-auto p-0">
+            {canvasBlocks[canvasActiveIndex] && (
+              <div className="h-full">
+                {canvasBlocks[canvasActiveIndex].type === 'code' ? (
+                  /* S-code: Code display with line numbers */
+                  <div className="flex h-full" style={{ fontFamily: "'Fira Code', 'Cascadia Code', 'JetBrains Mono', 'Consolas', monospace" }}>
+                    {/* Line numbers */}
+                    <div 
+                      className="select-none text-right py-4 px-3 text-xs leading-6 sticky left-0"
+                      style={{ backgroundColor: c.bgSecondary, color: c.textMuted, borderRight: `1px solid ${c.borderPrimary}`, minWidth: '3rem' }}
+                    >
+                      {canvasBlocks[canvasActiveIndex].content.split('\n').map((_, i) => (
+                        <div key={i}>{i + 1}</div>
+                      ))}
+                    </div>
+                    {/* Code content */}
+                    <pre 
+                      className="flex-1 py-4 px-4 text-sm leading-6 overflow-x-auto"
+                      style={{ color: c.textPrimary, backgroundColor: c.bgPrimary, margin: 0 }}
+                    >
+                      <code>{canvasBlocks[canvasActiveIndex].content}</code>
+                    </pre>
+                  </div>
+                ) : (
+                  /* S-math: Math solution display */
+                  <div className="p-6 space-y-4">
+                    <div 
+                      className="rounded-2xl border p-5"
+                      style={{ backgroundColor: c.bgSecondary, borderColor: c.borderPrimary }}
+                    >
+                      {canvasBlocks[canvasActiveIndex].content.split('\n').map((line, i) => {
+                        const trimmed = line.trim();
+                        // Detect section headers (lines ending with :)
+                        const isHeader = /^(step|answer|solution|given|find|formula|result|proof|therefore|hence)/i.test(trimmed);
+                        // Detect final answer lines
+                        const isFinalAnswer = /^(answer|result|therefore|hence|final|∴)/i.test(trimmed);
+                        // Detect separator lines
+                        const isSeparator = /^[-=_]{3,}$/.test(trimmed);
+                        
+                        if (isSeparator) {
+                          return <hr key={i} className="my-3" style={{ borderColor: c.borderPrimary }} />;
+                        }
+                        
+                        return (
+                          <div 
+                            key={i} 
+                            className={`${isHeader ? 'font-black text-base mt-4 mb-1' : 'text-sm'} ${isFinalAnswer ? 'text-lg font-black mt-4 p-3 rounded-xl' : ''} leading-relaxed`}
+                            style={{ 
+                              color: isHeader ? c.accent : isFinalAnswer ? '#22c55e' : c.textPrimary,
+                              backgroundColor: isFinalAnswer ? 'rgba(34,197,94,0.08)' : 'transparent',
+                              fontFamily: "'Fira Code', 'Cascadia Code', monospace",
+                            }}
+                          >
+                            {trimmed || '\u00A0'}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Canvas Footer */}
+          <div className="px-4 py-2 border-t flex items-center justify-between" style={{ borderColor: c.borderPrimary, backgroundColor: c.bgSecondary }}>
+            <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: c.textMuted }}>
+              {canvasBlocks[canvasActiveIndex]?.type === 'code' 
+                ? `${langDisplayName(canvasBlocks[canvasActiveIndex]?.language)} | ${canvasBlocks[canvasActiveIndex]?.content.split('\n').length} lines`
+                : `${canvasBlocks[canvasActiveIndex]?.content.split('\n').length} steps`
+              }
+            </span>
+            <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: c.textMuted }}>
+              {canvasBlocks[canvasActiveIndex]?.type === 'code' ? 'S-CODE' : 'S-MATH'}
+            </span>
+          </div>
+        </div>
+      )}
+
+      <main className={`flex-1 flex flex-col relative overflow-hidden ${canvasOpen && !canvasFullscreen ? 'hidden md:flex' : ''}`} style={{ order: 1 }}>
         <div className="md:hidden h-14 border-b backdrop-blur-md flex items-center px-4 sticky top-0 z-40" style={{ borderColor: c.borderPrimary, backgroundColor: `${c.bgPrimary}cc` }}>
           <button onClick={() => setIsSidebarOpen(true)} className="p-2 -ml-2" style={{ color: c.textSecondary }}><Menu size={20} /></button>
           <div className="flex-1 text-center font-black tracking-tighter text-lg" style={{ color: c.accent }}>UTSHO AI</div>
@@ -881,6 +1126,28 @@ const App: React.FC = () => {
                         >
                           {m.content.startsWith("Failure") && <AlertCircle size={14} className="inline mr-2" />}
                           {m.content}
+                        </div>
+                      )}
+                      {/* S-code / S-math canvas buttons */}
+                      {m.canvasBlocks && m.canvasBlocks.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-1">
+                          {m.canvasBlocks.map((block, bIdx) => (
+                            <button
+                              key={bIdx}
+                              onClick={() => openCanvas(m.canvasBlocks!)}
+                              className="flex items-center gap-2 border py-2 px-4 rounded-2xl text-xs font-bold transition-all shadow-sm hover:scale-105 active:scale-95"
+                              style={{ 
+                                backgroundColor: block.type === 'code' ? c.accentSubtle : 'rgba(245,158,11,0.08)',
+                                borderColor: block.type === 'code' ? c.accent : '#f59e0b',
+                                color: block.type === 'code' ? c.accent : '#f59e0b',
+                              }}
+                            >
+                              {block.type === 'code' 
+                                ? <><Code size={14} /> Open in S-code{block.language ? ` (${langDisplayName(block.language)})` : ''}<ChevronRight size={12} /></>
+                                : <><Calculator size={14} /> Open in S-math<ChevronRight size={12} /></>
+                              }
+                            </button>
+                          ))}
                         </div>
                       )}
                       {m.sources && m.sources.length > 0 && (
