@@ -659,9 +659,42 @@ const App: React.FC = () => {
                 <button onClick={() => setSelectedDocument(null)} className="ml-2 transition-colors hover:text-red-400" style={{ color: c.textMuted }}><X size={14} /></button>
               </div>
             )}
+            {inputText.startsWith('/') && (
+              <div className="flex flex-wrap gap-1.5 px-2 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                {(isAdmin ? [
+                  { label: 'Inbox', cmd: '/inbox' },
+                  { label: 'Status', cmd: '/status' },
+                  { label: 'Directives', cmd: '/list directives' },
+                  { label: 'Knowledge', cmd: '/list knowledge' },
+                  { label: 'Set Directive', cmd: '/set directive ' },
+                  { label: 'Set Personality', cmd: '/set personality ' },
+                  { label: 'Train', cmd: '/train ' },
+                  { label: 'Help', cmd: '/help' },
+                ] : []).concat([
+                  { label: 'Send Feedback', cmd: '/feedback ' },
+                  { label: 'My Replies', cmd: '/myreplies' },
+                ]).filter(btn => btn.cmd.startsWith(inputText) || inputText === '/').map((item, i) => (
+                  <button
+                    key={i}
+                    onClick={() => {
+                      setInputText(item.cmd);
+                      if (!item.cmd.endsWith(' ')) {
+                        setInputText(item.cmd);
+                        setTimeout(() => handleSendMessage(), 50);
+                      }
+                    }}
+                    className="px-3 py-1.5 rounded-full text-xs font-bold transition-all hover:scale-105 active:scale-95"
+                    style={{ backgroundColor: c.bgTertiary, color: c.textSecondary, border: `1px solid ${c.borderPrimary}` }}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="flex items-end gap-2 border rounded-[2.5rem] p-2.5 shadow-2xl transition-all" style={{ backgroundColor: `${c.bgSecondary}cc`, borderColor: c.borderPrimary }}>
               <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileSelect} accept="image/*,.pdf,.doc,.docx,.ppt,.pptx,.txt,.md,.csv,.json,.xml,.html,.css,.js,.ts,.tsx,.jsx,.py,.java,.c,.cpp,.h,.rb,.go,.rs,.sh,.yaml,.yml,.toml,.ini,.cfg,.log,.sql,.env" />
-              <button onClick={() => fileInputRef.current?.click()} className="p-3.5 transition-colors" style={{ color: c.textMuted }}><Paperclip size={22} /></button>
+              <button onClick={() => fileInputRef.current?.click()} className="p-3.5 transition-colors" style={{ color: c.textMuted }} title="Attach file"><Paperclip size={22} /></button>
+              <button onClick={() => setInputText('/feedback ')} className="p-3.5 transition-colors" style={{ color: c.textMuted }} title="Send feedback to admin"><AlertCircle size={20} /></button>
               <textarea rows={1} value={inputText} onChange={e => { setInputText(e.target.value); e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } }} placeholder="Talk to Utsho..." className="flex-1 bg-transparent py-3.5 px-2 outline-none resize-none max-h-40 text-[15px]" style={{ color: c.textPrimary }} />
               <button onClick={handleSendMessage} disabled={isLoading} className="p-4 rounded-full transition-all active:scale-90 shadow-xl" style={{ backgroundColor: (inputText.trim() || selectedImage || selectedDocument) && !isLoading ? c.accent : c.bgTertiary, boxShadow: (inputText.trim() || selectedImage || selectedDocument) && !isLoading ? `0 4px 14px ${c.accentShadow}` : 'none', color: (inputText.trim() || selectedImage || selectedDocument) && !isLoading ? '#fff' : c.textMuted }}>
                  {isLoading ? <RefreshCcw size={22} className="animate-spin" /> : <Send size={22} />}
