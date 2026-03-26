@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Plus, MessageSquare, Trash2, Menu, Sparkles, LogOut, RefreshCcw, Settings, Globe, AlertCircle, Paperclip, X, Facebook, Instagram, Palette, Check, Code, Calculator, Copy, ChevronRight, Maximize2, Minimize2, FileText } from 'lucide-react';
+import { Send, Plus, MessageSquare, Trash2, Menu, Sparkles, LogOut, RefreshCcw, Settings, Globe, AlertCircle, Paperclip, X, Facebook, Instagram, Palette, Check, Code, Calculator, Copy, ChevronRight, Maximize2, Minimize2, FileText, Wrench, FileSearch, Image as ImageIcon } from 'lucide-react';
 import { ChatSession, Message, UserProfile, Gender, ApiProvider, CanvasBlock, CanvasType } from './types';
 import { streamChatResponse, checkApiHealth, getPoolStatus, adminResetPool, getLastNodeError, getActiveKey } from './services/aiService';
 import { generateImage, getRemainingImageGenerations, getImageDailyLimit } from './services/imageService';
@@ -35,6 +35,7 @@ const App: React.FC = () => {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [selectedDocument, setSelectedDocument] = useState<{ text: string, fileName: string, fileType: string } | null>(null);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+  const [isToolsOpen, setIsToolsOpen] = useState(false);
   const [feedbackMessages, setFeedbackMessages] = useState<any[]>([]);
   const [feedbackInput, setFeedbackInput] = useState('');
   const [feedbackReplyTo, setFeedbackReplyTo] = useState<string | null>(null);
@@ -664,6 +665,53 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen font-['Hind_Siliguri',_sans-serif]" style={{ backgroundColor: c.bgPrimary, color: c.textPrimary }}>
+      {isToolsOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 backdrop-blur-sm bg-black/50">
+          <div className="border rounded-3xl w-full max-w-md shadow-2xl p-6 space-y-6" style={{ backgroundColor: c.bgSecondary, borderColor: c.borderPrimary }}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-xl font-black uppercase tracking-widest" style={{ color: c.accent }}>AI Tools</h3>
+              <button onClick={() => setIsToolsOpen(false)} style={{ color: c.textMuted }}><X size={20} /></button>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="flex gap-4 p-4 rounded-2xl border transition-all hover:scale-[1.02]" style={{ backgroundColor: c.bgTertiary, borderColor: c.borderPrimary }}>
+                <div className="p-3 rounded-xl bg-blue-500/10 text-blue-500"><Code size={24} /></div>
+                <div>
+                  <h4 className="font-bold text-sm" style={{ color: c.textPrimary }}>S-code</h4>
+                  <p className="text-xs" style={{ color: c.textMuted }}>Generate, debug, and explain code in any language with a dedicated canvas.</p>
+                </div>
+              </div>
+
+              <div className="flex gap-4 p-4 rounded-2xl border transition-all hover:scale-[1.02]" style={{ backgroundColor: c.bgTertiary, borderColor: c.borderPrimary }}>
+                <div className="p-3 rounded-xl bg-amber-500/10 text-amber-500"><Calculator size={24} /></div>
+                <div>
+                  <h4 className="font-bold text-sm" style={{ color: c.textPrimary }}>S-math</h4>
+                  <p className="text-xs" style={{ color: c.textMuted }}>Solve complex equations with step-by-step visual solutions.</p>
+                </div>
+              </div>
+
+              <div className="flex gap-4 p-4 rounded-2xl border transition-all hover:scale-[1.02]" style={{ backgroundColor: c.bgTertiary, borderColor: c.borderPrimary }}>
+                <div className="p-3 rounded-xl bg-cyan-500/10 text-cyan-500"><FileSearch size={24} /></div>
+                <div>
+                  <h4 className="font-bold text-sm" style={{ color: c.textPrimary }}>S-explain</h4>
+                  <p className="text-xs" style={{ color: c.textMuted }}>Deep analysis of documents (PDF, DOCX) and images in a professional report format.</p>
+                </div>
+              </div>
+
+              <div className="flex gap-4 p-4 rounded-2xl border transition-all hover:scale-[1.02]" style={{ backgroundColor: c.bgTertiary, borderColor: c.borderPrimary }}>
+                <div className="p-3 rounded-xl bg-purple-500/10 text-purple-500"><ImageIcon size={24} /></div>
+                <div>
+                  <h4 className="font-bold text-sm" style={{ color: c.textPrimary }}>Image Gen</h4>
+                  <p className="text-xs" style={{ color: c.textMuted }}>Create high-quality images from text prompts using advanced models.</p>
+                </div>
+              </div>
+            </div>
+
+            <button onClick={() => setIsToolsOpen(false)} className="w-full py-3 font-bold rounded-xl text-white" style={{ backgroundColor: c.accent }}>Got it</button>
+          </div>
+        </div>
+      )}
+
       {isSettingsOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 backdrop-blur-sm bg-black/50">
            <div className="border p-8 rounded-3xl w-full max-w-md space-y-6 shadow-2xl" style={{ backgroundColor: c.bgSecondary, borderColor: c.borderPrimary }}>
@@ -877,6 +925,10 @@ const App: React.FC = () => {
           )}
 
           <div className="flex items-center justify-between px-3 py-2 rounded-xl border" style={{ backgroundColor: c.bgHover, borderColor: c.borderPrimary }}>
+            <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: c.textMuted }}>Tools</span>
+            <button onClick={() => setIsToolsOpen(true)} className="transition-colors" style={{ color: c.textMuted }}><Wrench size={14} /></button>
+          </div>
+          <div className="flex items-center justify-between px-3 py-2 rounded-xl border" style={{ backgroundColor: c.bgHover, borderColor: c.borderPrimary }}>
             <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: c.textMuted }}>Settings</span>
             <button onClick={() => setIsSettingsOpen(true)} className="transition-colors" style={{ color: c.textMuted }}><Settings size={14} /></button>
           </div>
@@ -944,7 +996,7 @@ const App: React.FC = () => {
             )}
             <div className="flex items-center gap-4">
               <a href="https://facebook.com/shakkhor12102005" target="_blank" className="transition-all hover:scale-110" style={{ color: c.textMuted }}><Facebook size={14}/></a>
-              <a href="https://instagram.com/shakkhor_paul/" target="_blank" className="transition-all hover:scale-110" style={{ color: c.textMuted }}><Instagram size={14}/></a>
+              <a href="https://www.instagram.com/shakkhor_paul005/" target="_blank" className="transition-all hover:scale-110" style={{ color: c.textMuted }}><Instagram size={14}/></a>
             </div>
             Developed by Shakkhor Paul
           </div>
