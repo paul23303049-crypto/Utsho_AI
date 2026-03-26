@@ -34,6 +34,11 @@ const App: React.FC = () => {
   const [selectedImage, setSelectedImage] = useState<{ data: string, mimeType: string } | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [selectedDocument, setSelectedDocument] = useState<{ text: string, fileName: string, fileType: string } | null>(null);
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+  const [feedbackMessages, setFeedbackMessages] = useState<any[]>([]);
+  const [feedbackInput, setFeedbackInput] = useState('');
+  const [feedbackReplyTo, setFeedbackReplyTo] = useState<string | null>(null);
+  const [feedbackReplyInput, setFeedbackReplyInput] = useState('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -505,6 +510,148 @@ const App: React.FC = () => {
         </div>
       )}
 
+      {isFeedbackOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 backdrop-blur-sm bg-black/50">
+          <div className="border rounded-3xl w-full max-w-lg shadow-2xl flex flex-col" style={{ backgroundColor: c.bgSecondary, borderColor: c.borderPrimary, maxHeight: '80vh' }}>
+            {/* Header */}
+            <div className="flex items-center justify-between p-5 border-b" style={{ borderColor: c.borderPrimary }}>
+              <h3 className="text-lg font-bold flex items-center gap-2" style={{ color: c.accent }}>
+                <MessageSquare size={20} /> {isAdmin ? 'User Feedback Inbox' : 'Contact Admin'}
+              </h3>
+              <button onClick={() => { setIsFeedbackOpen(false); setFeedbackReplyTo(null); }} className="p-1 transition-colors hover:text-red-400" style={{ color: c.textMuted }}><X size={20} /></button>
+            </div>
+
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3" style={{ minHeight: '200px' }}>
+              {feedbackMessages.length === 0 ? (
+                <div className="text-center py-8" style={{ color: c.textMuted }}>
+                  <MessageSquare size={40} className="mx-auto mb-3 opacity-30" />
+                  <p className="text-sm font-medium">{isAdmin ? 'No feedback messages yet.' : 'No messages yet. Send your first message below!'}</p>
+                </div>
+              ) : (
+                feedbackMessages.map((msg: any) => (
+                  <div key={msg.id} className="space-y-1">
+                    {/* User message */}
+                    <div className="flex gap-2 items-start">
+                      <div className="flex-1">
+                        {isAdmin && (
+                          <div className="text-[10px] font-bold mb-1" style={{ color: c.textMuted }}>
+                            {msg.fromName} ({msg.fromEmail}) {!msg.read && <span style={{ color: '#ef4444' }}>NEW</span>}
+                          </div>
+                        )}
+                        <div className="rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm" style={{ backgroundColor: c.bgTertiary, color: c.textPrimary }}>
+                          {msg.message}
+                        </div>
+                        <div className="text-[9px] mt-0.5 pl-1" style={{ color: c.textMuted }}>
+                          {msg.createdAt instanceof Date ? msg.createdAt.toLocaleDateString() : ''}
+                        </div>
+                      </div>
+                    </div>
+                    {/* Admin reply */}
+                    {msg.reply && (
+                      <div className="flex gap-2 items-start justify-end">
+                        <div>
+                          <div className="rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm text-white" style={{ backgroundColor: c.accent }}>
+                            {msg.reply}
+                          </div>
+                          <div className="text-[9px] mt-0.5 pr-1 text-right" style={{ color: c.textMuted }}>
+                            Admin {msg.repliedAt instanceof Date ? msg.repliedAt.toLocaleDateString() : ''}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    {/* Admin reply button */}
+                    {isAdmin && !msg.reply && (
+                      <button 
+                        onClick={() => { setFeedbackReplyTo(msg.id); setFeedbackReplyInput(''); }}
+                        className="text-[10px] font-bold ml-2 transition-colors"
+                        style={{ color: c.accent }}
+                      >
+                        Reply
+                      </button>
+                    )}
+                    {/* Reply input for this message */}
+                    {isAdmin && feedbackReplyTo === msg.id && (
+                      <div className="flex gap-2 ml-4">
+                        <input
+                          type="text"
+                          value={feedbackReplyInput}
+                          onChange={e => setFeedbackReplyInput(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' && feedbackReplyInput.trim()) {
+                              db.replyToFeedback(msg.id, feedbackReplyInput.trim());
+                              const updated = feedbackMessages.map((m: any) => m.id === msg.id ? { ...m, reply: feedbackReplyInput.trim(), repliedAt: new Date(), read: true } : m);
+                              setFeedbackMessages(updated);
+                              setFeedbackReplyTo(null);
+                            }
+                          }}
+                          placeholder="Type your reply..."
+                          className="flex-1 px-3 py-2 rounded-xl text-sm outline-none border"
+                          style={{ backgroundColor: c.bgTertiary, borderColor: c.borderPrimary, color: c.textPrimary }}
+                          autoFocus
+                        />
+                        <button
+                          onClick={() => {
+                            if (feedbackReplyInput.trim()) {
+                              db.replyToFeedback(msg.id, feedbackReplyInput.trim());
+                              const updated = feedbackMessages.map((m: any) => m.id === msg.id ? { ...m, reply: feedbackReplyInput.trim(), repliedAt: new Date(), read: true } : m);
+                              setFeedbackMessages(updated);
+                              setFeedbackReplyTo(null);
+                            }
+                          }}
+                          className="px-3 py-2 rounded-xl text-sm font-bold text-white"
+                          style={{ backgroundColor: c.accent }}
+                        >
+                          <Send size={14} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* User send feedback input (non-admin only) */}
+            {!isAdmin && (
+              <div className="p-4 border-t flex gap-2" style={{ borderColor: c.borderPrimary }}>
+                <input
+                  type="text"
+                  value={feedbackInput}
+                  onChange={e => setFeedbackInput(e.target.value)}
+                  onKeyDown={async e => {
+                    if (e.key === 'Enter' && feedbackInput.trim()) {
+                      const id = `fb_${Date.now()}`;
+                      const newMsg = { id, fromEmail: userProfile!.email.toLowerCase(), fromName: userProfile!.name, message: feedbackInput.trim(), createdAt: new Date(), read: false };
+                      await db.saveFeedback(newMsg);
+                      setFeedbackMessages(prev => [...prev, newMsg]);
+                      setFeedbackInput('');
+                    }
+                  }}
+                  placeholder="Type your message to admin..."
+                  className="flex-1 px-4 py-3 rounded-2xl text-sm outline-none border"
+                  style={{ backgroundColor: c.bgTertiary, borderColor: c.borderPrimary, color: c.textPrimary }}
+                />
+                <button
+                  onClick={async () => {
+                    if (feedbackInput.trim()) {
+                      const id = `fb_${Date.now()}`;
+                      const newMsg = { id, fromEmail: userProfile!.email.toLowerCase(), fromName: userProfile!.name, message: feedbackInput.trim(), createdAt: new Date(), read: false };
+                      await db.saveFeedback(newMsg);
+                      setFeedbackMessages(prev => [...prev, newMsg]);
+                      setFeedbackInput('');
+                    }
+                  }}
+                  className="p-3 rounded-2xl text-white transition-all active:scale-90"
+                  style={{ backgroundColor: feedbackInput.trim() ? c.accent : c.bgTertiary, color: feedbackInput.trim() ? '#fff' : c.textMuted }}
+                >
+                  <Send size={18} />
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <aside className={`fixed md:relative z-50 inset-y-0 left-0 w-72 border-r flex flex-col transition-transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`} style={{ backgroundColor: c.bgSecondary, borderColor: c.borderPrimary }}>
         <div className="p-4 flex flex-col gap-4">
           <button onClick={() => createNewSession()} className="py-3.5 rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg transition-all active:scale-95" style={{ backgroundColor: c.buttonPrimary, color: c.buttonPrimaryText }}><Plus size={18} /> New Chat</button>
@@ -546,6 +693,30 @@ const App: React.FC = () => {
             <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: c.textMuted }}>Settings</span>
             <button onClick={() => setIsSettingsOpen(true)} className="transition-colors" style={{ color: c.textMuted }}><Settings size={14} /></button>
           </div>
+          <button 
+            onClick={async () => { 
+              setIsFeedbackOpen(true); 
+              if (db.isDatabaseEnabled()) {
+                try {
+                  if (isAdmin) {
+                    const all = await db.getAllFeedback();
+                    setFeedbackMessages(all);
+                  } else {
+                    const replies = await db.getUserFeedbackReplies(userProfile!.email);
+                    const myFeedback = (await db.getAllFeedback()).filter(f => f.fromEmail === userProfile!.email.toLowerCase());
+                    setFeedbackMessages(myFeedback.length > 0 ? myFeedback : replies.map((r: any, i: number) => ({ id: `r${i}`, fromName: 'You', message: r.message, reply: r.reply, repliedAt: r.repliedAt, read: true, createdAt: new Date() })));
+                  }
+                } catch(e) { console.error(e); }
+              }
+            }}
+            className="flex items-center justify-between px-3 py-2 rounded-xl border transition-colors"
+            style={{ backgroundColor: c.bgHover, borderColor: c.borderPrimary }}
+          >
+            <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: c.textMuted }}>
+              {isAdmin ? 'Inbox' : 'Contact Admin'}
+            </span>
+            <MessageSquare size={14} style={{ color: c.textMuted }} />
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-2 space-y-1 scrollbar-hide">
@@ -694,7 +865,7 @@ const App: React.FC = () => {
             <div className="flex items-end gap-2 border rounded-[2.5rem] p-2.5 shadow-2xl transition-all" style={{ backgroundColor: `${c.bgSecondary}cc`, borderColor: c.borderPrimary }}>
               <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileSelect} accept="image/*,.pdf,.doc,.docx,.ppt,.pptx,.txt,.md,.csv,.json,.xml,.html,.css,.js,.ts,.tsx,.jsx,.py,.java,.c,.cpp,.h,.rb,.go,.rs,.sh,.yaml,.yml,.toml,.ini,.cfg,.log,.sql,.env" />
               <button onClick={() => fileInputRef.current?.click()} className="p-3.5 transition-colors" style={{ color: c.textMuted }} title="Attach file"><Paperclip size={22} /></button>
-              <button onClick={() => setInputText('/feedback ')} className="p-3.5 transition-colors" style={{ color: c.textMuted }} title="Send feedback to admin"><AlertCircle size={20} /></button>
+
               <textarea rows={1} value={inputText} onChange={e => { setInputText(e.target.value); e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } }} placeholder="Talk to Utsho..." className="flex-1 bg-transparent py-3.5 px-2 outline-none resize-none max-h-40 text-[15px]" style={{ color: c.textPrimary }} />
               <button onClick={handleSendMessage} disabled={isLoading} className="p-4 rounded-full transition-all active:scale-90 shadow-xl" style={{ backgroundColor: (inputText.trim() || selectedImage || selectedDocument) && !isLoading ? c.accent : c.bgTertiary, boxShadow: (inputText.trim() || selectedImage || selectedDocument) && !isLoading ? `0 4px 14px ${c.accentShadow}` : 'none', color: (inputText.trim() || selectedImage || selectedDocument) && !isLoading ? '#fff' : c.textMuted }}>
                  {isLoading ? <RefreshCcw size={22} className="animate-spin" /> : <Send size={22} />}
